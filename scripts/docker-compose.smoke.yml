@@ -1,0 +1,23 @@
+# Overlay used by scripts/smoke.sh. Paths are relative to the repo root (the first compose file).
+services:
+  pricewatch:
+    image: parabyte-ca/pricewatch:${PRICEWATCH_VERSION:-latest}
+    pull_policy: never
+    environment:
+      PRICEWATCH_ADMIN_PASSWORD: smoke-test-password
+      PRICEWATCH_AUTH_MODE: password
+      PRICEWATCH_MIN_DOMAIN_INTERVAL: "5"
+      PRICEWATCH_NOTIFY_URLS: ""
+    depends_on:
+      - fixtures
+  browser:
+    pull_policy: never
+  fixtures:
+    image: python:3.12-slim
+    container_name: pricewatch-fixtures
+    command: ["python", "/scripts/fixture_server.py", "/fixtures"]
+    volumes:
+      - ./scripts/fixture_server.py:/scripts/fixture_server.py:ro
+      - ./backend/tests/fixtures:/fixtures:ro
+    ports:
+      - "18000:8000"

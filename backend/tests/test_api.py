@@ -142,3 +142,27 @@ def test_duplicate_source_conflict(client, pages):
 
 def test_metrics(client):
     assert "pricewatch_items" in client.get("/metrics").text
+
+
+async def test_scheduler_tick_checks_due_sources(client, pages):
+    import asyncio
+
+    from pricewatch import scheduler
+    from pricewatch.db import session_scope
+    from pricewatch.models import SourceLink
+    from pricewatch.timeutil import utcnow
+
+    item = client.post("/api/items", json={"name": "Drill"}).json()
+    src = client.post(f"/api/items/{item['id']}/sources", json={"url": "https://www.homedepot.ca/drill"}).json()
+    assert src["id"] in scheduler.due_source_ids()
+    assert await scheduler.tick() == 1
+    for _ in range(50):
+        if not runtime.in_flight:
+            break
+        await asyncio.sleep(0.05)
+    db = session_scope()
+    s = db.get(SourceLink, src["id"])
+    assert s.last_price_cents == 14900
+    assert s.next_check_at > utcnow()
+    db.close()
+    assert src["id"] not in scheduler.due_source_ids()

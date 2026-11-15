@@ -1,0 +1,9 @@
+{
+  "name": "PriceWatch CA",
+  "short_name": "PriceWatch",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#b91c1c",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}
