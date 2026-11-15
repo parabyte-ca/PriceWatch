@@ -2,6 +2,21 @@
 
 Items not yet scheduled into a phase. Newest first.
 
+## Household accounts and shared lists (requested 2026-11-15)
+
+1. **Separate identities.** Each person (you and your wife) gets their own login, wishlist, targets, alert rules,
+   notification URLs, quiet hours and snoozes. Replaces the single admin password: `users` table (name, password
+   hash with argon2 or bcrypt, per-user API token, role admin/member), `items.owner_id`, per-user settings rows.
+   Retailers, price policies, observations and fetching stay shared, so one product is fetched once even if both
+   of you track it.
+2. **Shared lists by invite.** Lists become first-class (`lists`, `list_members` with role owner/editor/viewer).
+   The owner creates a short, single-use "friend code" (e.g. `PW-7K3Q-9XMD`, expires in 7 days, stored hashed);
+   the other person enters it under Settings to join. Shared items show who added them; each member keeps their
+   own alert preferences for shared items. Leaving or revoking removes access without deleting history.
+- Migration: existing data moves to the first admin user and a default "My list"; back up first (update.sh does).
+- Fits the gift-lists item in v0.4 (per person, per occasion, budgets): build lists once for both.
+- Security: per-user sessions, rate-limited code redemption, codes never logged, admin can reset a member's password.
+
 ## v0.4.0 (target Nov 22 to 25, from the 2026-11-15 delta review)
 
 1. Purchases and price-protection tracker: per purchase store retailer, price, date, channel; keep watching and
