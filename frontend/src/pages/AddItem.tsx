@@ -22,6 +22,8 @@ export default function AddItem() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [manualName, setManualName] = useState("");
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
 
   const doPreview = async (e: FormEvent) => {
     e.preventDefault();
@@ -56,8 +58,25 @@ export default function AddItem() {
 
   const createByName = async (e: FormEvent) => {
     e.preventDefault();
-    const item = await api<Item>("/api/items", { method: "POST", json: { name: manualName, target_price_cents: toCents(target) } });
-    nav(`/items/${item.id}`);
+    setBusy(true);
+    setError("");
+    try {
+      const item = await api<Item>("/api/items", {
+        method: "POST",
+        json: { name: manualName, brand: brand || null, model: model || null, target_price_cents: toCents(target) },
+      });
+      const [providers, settings] = await Promise.all([
+        api<{ providers: unknown[] }>("/api/discovery/providers"),
+        api<{ discover_on_add: boolean }>("/api/settings"),
+      ]);
+      if (providers.providers.length && settings.discover_on_add) {
+        await api(`/api/items/${item.id}/discover`, { method: "POST", json: {} }).catch(() => undefined);
+      }
+      nav(`/items/${item.id}`);
+    } catch (err) {
+      setError((err as Error).message);
+      setBusy(false);
+    }
   };
 
   const p = preview?.product;
@@ -115,11 +134,16 @@ export default function AddItem() {
       <form onSubmit={createByName} className="card space-y-3">
         <h2 className="text-lg font-semibold">Add by name</h2>
         <p className="text-sm text-slate-500">
-          Creates an empty item. Add retailer URLs or manual prices on its page. Search-based discovery arrives in v0.2.
+          Creates the item and, when a search provider is configured, looks it up on Google Shopping (Canada). You confirm
+          or reject each suggested listing on the item page.
         </p>
-        <input className="input" required placeholder="e.g. Sony WH-1000XM6" value={manualName} onChange={(e) => setManualName(e.target.value)} />
+        <input className="input" required placeholder="Name, e.g. Sony WH-1000XM6 Headphones Black" value={manualName} onChange={(e) => setManualName(e.target.value)} />
+        <div className="flex gap-2">
+          <input className="input" placeholder="Brand (optional)" value={brand} onChange={(e) => setBrand(e.target.value)} />
+          <input className="input" placeholder="Model / MPN (optional)" value={model} onChange={(e) => setModel(e.target.value)} />
+        </div>
         <input className="input" inputMode="decimal" placeholder="Target price (optional)" value={target} onChange={(e) => setTarget(e.target.value)} />
-        <button className="btn-ghost">Create item</button>
+        <button className="btn-ghost" disabled={busy}>{busy ? "Working..." : "Create and search"}</button>
       </form>
     </div>
   );

@@ -73,6 +73,9 @@ export interface Source {
   title: string | null;
   status: string;
   match_confidence: number | null;
+  match_method: string | null;
+  match_reasons: { reasons?: string[]; exclusions?: string[]; serp_price_cents?: number | null; merchant?: string | null } | null;
+  discovered_via: string | null;
   fetch_mode: string | null;
   retailer_name: string | null;
   price_match: boolean;
@@ -123,6 +126,45 @@ export interface Item {
   hot: boolean;
   active: boolean;
   amazon_history_note: string | null;
+  search_query: string | null;
+  exclude_refurbished: boolean;
+  exclude_open_box: boolean;
+  exclude_used: boolean;
+  exclude_marketplace: boolean;
+  exclude_bundles: boolean;
+  exclude_variants: boolean;
   summary: Summary;
   sources: Source[] | null;
 }
+
+export interface DiscoveryCandidate {
+  title: string;
+  url: string;
+  merchant: string | null;
+  price_cents: number | null;
+  confidence: number;
+  method: string;
+  accepted: boolean;
+  reasons: string[];
+  exclusions: string[];
+  status: string;
+}
+
+export interface DiscoveryResult {
+  provider: string;
+  query: string;
+  cached: boolean;
+  added: number;
+  usage: number;
+  limit: number;
+  candidates: DiscoveryCandidate[];
+}
+
+export const EXCLUSIONS = [
+  ["exclude_refurbished", "Refurbished"],
+  ["exclude_open_box", "Open box"],
+  ["exclude_used", "Used"],
+  ["exclude_marketplace", "Marketplace sellers"],
+  ["exclude_bundles", "Bundles"],
+  ["exclude_variants", "Other colours, sizes, storage"],
+] as const;

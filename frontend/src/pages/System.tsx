@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ago, api, localTime } from "../api";
+import { ago, api, localTime, money, toCents, toDollars } from "../api";
 
 interface Health { total: number; ok: number; success_rate: number | null; last: string | null; avg_ms: number }
 interface SystemData {
@@ -11,12 +11,13 @@ interface SystemData {
   items: number;
   sources: number;
   due_now: number;
+  search_providers: { name: string; used_this_month: number; limit: number }[];
   domains: { domain: string; day: Health | null; week: Health | null; backoff_until: string | null }[];
   recent_runs: { id: number; domain: string; started_at: string; duration_ms: number | null; status: string;
     http_status: number | null; method: string | null; error: string | null }[];
 }
 interface Retailer { id: number; domain: string; name: string; fetch_mode: string; respect_robots: boolean;
-  price_match: boolean; free_shipping_threshold_cents: number | null; backoff_until: string | null; selectors: Record<string, string> | null }
+  price_match: boolean; free_shipping_threshold_cents: number | null; default_shipping_cents: number | null; backoff_until: string | null; selectors: Record<string, string> | null }
 
 const rateClass = (r: number | null | undefined) =>
   r == null ? "" : r >= 90 ? "text-green-700" : r >= 50 ? "text-amber-600" : "text-red-600";
@@ -51,6 +52,14 @@ export default function SystemPage() {
         <div><div className="label">Items / sources</div>{data.items} / {data.sources}</div>
         <div><div className="label">Due now</div>{data.due_now}</div>
         <div><div className="label">Scheduler / browser</div>{data.scheduler_enabled ? "on" : "off"} / {data.browser_enabled ? "on" : "off"}</div>
+        <div className="col-span-2 sm:col-span-4">
+          <div className="label">Search providers</div>
+          {data.search_providers.length
+            ? data.search_providers.map((p) => (
+                <span key={p.name} className="mr-4">{p.name}: {p.used_this_month}{p.limit ? `/${p.limit}` : ""} searches this month</span>
+              ))
+            : "None configured (set SERPAPI_KEY or BRIGHTDATA_API_KEY)"}
+        </div>
       </div>
 
       <div className="card overflow-x-auto">
@@ -80,7 +89,7 @@ export default function SystemPage() {
         <table className="w-full">
           <thead><tr>
             <th className="th">Retailer</th><th className="th">Fetch mode</th><th className="th">robots.txt</th>
-            <th className="th">Price match</th><th className="th"></th>
+            <th className="th">Price match</th><th className="th">Free shipping from</th><th className="th">Shipping</th><th className="th"></th>
           </tr></thead>
           <tbody>
             {used.map((r) => (
@@ -96,6 +105,17 @@ export default function SystemPage() {
                 </td>
                 <td className="td">
                   <input type="checkbox" checked={r.price_match} onChange={(e) => patch(r.id, { price_match: e.target.checked })} />
+                </td>
+                <td className="td">
+                  <input className="input w-24 py-1" inputMode="decimal" placeholder="n/a" defaultValue={toDollars(r.free_shipping_threshold_cents)}
+                    title={`Current: ${money(r.free_shipping_threshold_cents)}`}
+                    onBlur={(e) => toCents(e.target.value) !== r.free_shipping_threshold_cents &&
+                      patch(r.id, { free_shipping_threshold_cents: toCents(e.target.value) })} />
+                </td>
+                <td className="td">
+                  <input className="input w-20 py-1" inputMode="decimal" placeholder="?" defaultValue={toDollars(r.default_shipping_cents)}
+                    onBlur={(e) => toCents(e.target.value) !== r.default_shipping_cents &&
+                      patch(r.id, { default_shipping_cents: toCents(e.target.value) })} />
                 </td>
                 <td className="td text-right">
                   {r.backoff_until && <button className="btn-ghost px-2 py-1 text-xs" onClick={() => patch(r.id, { clear_backoff: true })}>Clear backoff</button>}

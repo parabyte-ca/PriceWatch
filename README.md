@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.1.0-blue)
+![Version](https://img.shields.io/badge/version-0.2.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -13,6 +13,10 @@ there is history to compare against.
 - Wishlist with target and maximum prices, priority, hot items (checked hourly), notes
 - Add an item by pasting a product URL: name, brand, MPN, GTIN, image and price are read from schema.org JSON-LD
 - Several retailer URLs per item; manual price entry for in-store or unsupported sites
+- Discovery through Google Shopping Canada (SerpApi or Bright Data, optional keys): candidate listings are matched and shown as suggestions to confirm or reject; rejections are remembered; results cached 7 days with a monthly search limit
+- Matching: GTIN (check-digit validated), then model number within brand, then fuzzy title similarity, with a model-number conflict check (XM5 is not XM6)
+- Per-item exclusions: refurbished, open box, used, marketplace sellers, bundles, other colours/sizes/storage; refurbished or used listings found during checks are not counted
+- Tracking parameters (utm, gclid, srsltid and similar) are stripped from URLs so duplicates are caught
 - Generic adapter: JSON-LD Product/Offer (including `@graph`, `AggregateOffer`, strikethrough prices, shipping), microdata, OpenGraph; per-retailer CSS selector overrides
 - Playwright browser sidecar for JavaScript-rendered pages (per retailer or automatic fallback)
 - Polite fetching: robots.txt, 5 s minimum per domain plus jitter, ETag/Last-Modified, short response cache, honest User-Agent, automatic backoff on 403/429/503
@@ -93,9 +97,13 @@ notification URLs are also editable on the Settings page.
 | `PRICEWATCH_BROWSER_TIMEOUT` | `30` | Per-page hard timeout (seconds) |
 | `PRICEWATCH_NOTIFY_URLS` | empty | Extra Apprise URLs, comma separated |
 | `PRICEWATCH_LOG_LEVEL` | `INFO` | Log level |
+| `SERPAPI_KEY` | empty | Enables SerpApi Google Shopping discovery |
+| `BRIGHTDATA_API_KEY` | empty | Enables Bright Data SERP discovery |
+| `BRIGHTDATA_ZONE` | `serp_api1` | Bright Data SERP API zone name |
 
-Paid APIs (SerpApi, Bright Data, Claude) arrive in later phases; each will be optional and off
-without a key.
+Search is used only for discovery, never for scheduled polling. The monthly search limit
+(default 200), match threshold and auto-confirm on exact GTIN are on the Settings page. Google
+Shopping results that only link to Google (no merchant URL) are listed but not added.
 
 ## Architecture
 ```
@@ -136,6 +144,9 @@ scripts/smoke.sh --browser                  # full stack: add item, alert, brows
 | `blocked` / backoff on a domain | The site returned 403/429. PriceWatch waits (15 min doubling to 24 h). Clear on the System page only if you changed something |
 | `robots` | The site's robots.txt disallows the page. Untick "respect" only for pages you are comfortable fetching |
 | `currency` | The page priced in another currency (US store); use the `.ca` URL |
+| `excluded` | The page says the listing is refurbished or used and the item excludes that; change the item's matching rules if you want it |
+| Discovery says "No search provider" | Set `SERPAPI_KEY` (or Bright Data) in `.env` and run `sudo docker compose up -d` |
+| Discovery adds nothing | Expand the results list on the item page to see why each listing was skipped; set a custom search query on the item |
 | Test alert says `logged` | No notification URL configured |
 | Browser checks fail | `sudo docker logs pricewatch-browser`; screenshots of failed renders are in `data/screenshots/` |
 | Forgot the password | It is `PRICEWATCH_ADMIN_PASSWORD` in `.env`; change it and run `sudo docker compose up -d` |

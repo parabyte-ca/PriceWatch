@@ -19,6 +19,10 @@ interface SettingsData {
   fake_sale_pct: number;
   good_within_pct: number;
   browser_fallback: boolean;
+  match_threshold: number;
+  auto_confirm_gtin: boolean;
+  serp_monthly_limit: number;
+  discover_on_add: boolean;
   provinces: Record<string, { name: string; rate: number }>;
   timezone: string;
 }
@@ -100,6 +104,28 @@ export default function SettingsPage() {
           </div>
         </div>
         <Toggle k="browser_fallback" label="Use the browser sidecar when a page has no price (if enabled in .env)" />
+      </div>
+
+      <div className="card space-y-3">
+        <h2 className="font-semibold">Discovery and matching</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">Title match threshold (%)</label>
+            <input className="input" type="number" min={50} max={100} value={s.match_threshold}
+              onChange={(e) => set("match_threshold", Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">Searches per month (0 = no limit)</label>
+            <input className="input" type="number" min={0} value={s.serp_monthly_limit}
+              onChange={(e) => set("serp_monthly_limit", Number(e.target.value))} />
+          </div>
+        </div>
+        <Toggle k="discover_on_add" label="Search automatically when adding an item by name" />
+        <Toggle k="auto_confirm_gtin" label="Auto-confirm listings whose GTIN/UPC matches exactly" />
+        <p className="text-xs text-slate-500">
+          Providers are enabled by SERPAPI_KEY or BRIGHTDATA_API_KEY in .env. Results are cached for 7 days per query.
+          SerpApi's free plan allows 250 searches a month.
+        </p>
       </div>
 
       <div className="card space-y-3">
