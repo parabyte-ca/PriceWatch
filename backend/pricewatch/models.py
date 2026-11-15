@@ -303,6 +303,50 @@ class SerpSearch(Base):
     error: Mapped[str | None] = mapped_column(Text)
 
 
+class Purchase(Base):
+    """Something a person bought; watched for claimable price drops during its protection window."""
+
+    __tablename__ = "purchases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    source_link_id: Mapped[int | None] = mapped_column(ForeignKey("source_links.id", ondelete="SET NULL"))
+    retailer_domain: Mapped[str | None] = mapped_column(String(200))
+    retailer_name: Mapped[str] = mapped_column(String(200))
+    channel: Mapped[str] = mapped_column(String(40), default="online")
+    price_cents: Mapped[int] = mapped_column(Integer)
+    shipping_cents: Mapped[int | None] = mapped_column(Integer)
+    purchased_on: Mapped[date] = mapped_column(Date)
+    protection_days: Mapped[int] = mapped_column(Integer, default=0)
+    protection_until: Mapped[date | None] = mapped_column(Date, index=True)
+    protection_basis: Mapped[str | None] = mapped_column(String(200))
+    badged: Mapped[bool] = mapped_column(Boolean, default=False)
+    order_ref: Mapped[str | None] = mapped_column(String(100))
+    notes: Mapped[str | None] = mapped_column(Text)
+    lowest_seen_cents: Mapped[int | None] = mapped_column(Integer)
+    lowest_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(20), default="watching")  # watching|claimable|claimed|expired|closed
+    claimed_cents: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ProofCapture(Base):
+    """Evidence captured when a claimable drop was seen: page snapshot, hash, timestamps."""
+
+    __tablename__ = "proof_captures"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_id: Mapped[int] = mapped_column(ForeignKey("purchases.id", ondelete="CASCADE"), index=True)
+    observation_id: Mapped[int | None] = mapped_column(ForeignKey("observations.id", ondelete="SET NULL"))
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    url: Mapped[str] = mapped_column(String(2000))
+    price_cents: Mapped[int] = mapped_column(Integer)
+    seller: Mapped[str | None] = mapped_column(String(200))
+    page_sha256: Mapped[str | None] = mapped_column(String(64))
+    path: Mapped[str | None] = mapped_column(String(500))  # folder under data/artifacts
+
+
 class DealFeedEntry(Base):
     __tablename__ = "deal_feed_entries"
 
@@ -314,4 +358,8 @@ class DealFeedEntry(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
     matched_item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
     match_score: Mapped[float | None] = mapped_column(Float)
+    retailer_domain: Mapped[str | None] = mapped_column(String(200))
+    deal_url: Mapped[str | None] = mapped_column(String(2000))
+    matched_source_id: Mapped[int | None] = mapped_column(ForeignKey("source_links.id", ondelete="SET NULL"))
+    price_cents: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

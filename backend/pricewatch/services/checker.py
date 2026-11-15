@@ -26,7 +26,6 @@ from ..metrics import FETCH_SECONDS, FETCH_TOTAL
 from ..models import FetchRun, Item, Observation, Retailer, SourceLink
 from ..timeutil import utcnow
 from . import alerts, events, keepa, runtime, settings_store
-from .summary import summarize_items
 
 log = logging.getLogger(__name__)
 
@@ -199,11 +198,17 @@ def record_observation(db: Session, src: SourceLink, *, price_cents: int | None,
     return obs, previous
 
 
-def run_alerts(db: Session, src: SourceLink, previous: dict) -> list:
+def run_alerts(db: Session, src: SourceLink, previous: dict, html: str | None = None) -> list:
+    from . import protection
+
     db.refresh(src.item)
-    summary = summarize_items(db, [src.item])[src.item.id]
-    return alerts.evaluate_item(db, src.item, summary, source=src, previous_price=previous["price"],
-                                previous_in_stock=previous["in_stock"], previous_atl=previous["atl"])
+    raised = alerts.evaluate_item(db, src.item, None, source=src, previous_price=previous["price"],
+                                  previous_in_stock=previous["in_stock"], previous_atl=previous["atl"])
+    try:
+        raised += protection.on_observation(db, src, html)
+    except Exception:  # noqa: BLE001 - never let proof capture break a check
+        log.exception("price protection check failed", extra={"source_id": src.id})
+    return raised
 
 
 def register_block(db: Session, retailer: Retailer | None, retry_after: int | None) -> bool:
@@ -320,6 +325,7 @@ async def check_source(source_id: int) -> str:
             return "backoff"
         started = utcnow()
         previous = None
+        page_html = None
         method = mode
         http_status = None
         elapsed = 0
@@ -346,6 +352,7 @@ async def check_source(source_id: int) -> str:
 
             if status == "ok":
                 assert parsed is not None
+                page_html = result.html
                 if method == "http":
                     src.etag, src.last_modified = result.etag, result.last_modified
                 if parsed.name and not src.title:
@@ -394,7 +401,7 @@ async def check_source(source_id: int) -> str:
             schedule_next(src, minutes, db)
         db.commit()
         if previous is not None:
-            run_alerts(db, src, previous)
+            run_alerts(db, src, previous, page_html)
         log.info("checked", extra={"source_id": src.id, "domain": domain, "status": status, "method": method})
         return status
     except Exception:

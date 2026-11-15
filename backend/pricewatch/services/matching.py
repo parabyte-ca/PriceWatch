@@ -222,6 +222,14 @@ def match(spec: ItemSpec, cand: Candidate, threshold: float = 85.0) -> MatchResu
     cand_models = model_tokens(cand.title) | model_tokens(cand.mpn or "")
     if _models_conflict(item_models, cand_models):
         return MatchResult(0.1, "fuzzy", False, [f"different model ({', '.join(sorted(cand_models))})"], exclusions)
+    shared = {a for a in item_models for b in cand_models
+              if a == b or (min(len(a), len(b)) >= 5 and (a.startswith(b) or b.startswith(a)))}
+    accessory = bool(re.search(r"\b(for|compatible with|pour|case|cover|replacement)\b", _clean_title(cand.title))
+                     and not re.search(r"\b(for|pour|case|cover)\b", _clean_title(spec.name)))
+    brand_in_title = item_brand is not None and item_brand in _clean_title(cand.title).replace(" ", "")
+    brand_fits = item_brand is None or cand_brand == item_brand or (cand_brand is None and brand_in_title)
+    if shared and not accessory and brand_fits:
+        return MatchResult(0.9, "model", not exclusions, [f"model {sorted(shared)[0]} in the title"], exclusions)
     left = _clean_title(" ".join(filter(None, [spec.brand, spec.name])))
     right = _clean_title(cand.title)
     score = fuzz.token_set_ratio(left, right)

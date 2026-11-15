@@ -38,6 +38,11 @@ DEFAULTS: dict = {
     "digest_time_blackfriday": "19:30",
     "my_best_buy_member": False,
     "tax_overrides": {},
+    "min_claim_cents": 100,
+    "alert_deal_feed": True,
+    "deal_feed_enabled": True,
+    "deal_feed_url": "https://forums.redflagdeals.com/feed/forum/9",
+    "deal_feed_threshold": 82.0,
 }
 
 SECRET_KEYS = {"notify_urls"}
@@ -47,7 +52,7 @@ USER_KEYS = {
     "province", "target_basis", "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end",
     "target_bypasses_quiet_hours", "notify_urls", "alert_target", "alert_drop", "alert_drop_pct",
     "alert_all_time_low", "alert_back_in_stock", "alert_source_failing", "alert_domain_blocked",
-    "digest_enabled", "digest_time", "digest_time_blackfriday", "my_best_buy_member",
+    "digest_enabled", "digest_time", "digest_time_blackfriday", "my_best_buy_member", "alert_deal_feed",
 }
 
 
