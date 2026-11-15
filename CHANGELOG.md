@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0] - 2026-11-15
+### Added
+- In-app updates for admins (System page): choose a release, check for updates, roll back, live log and status
+- Host upgrade agent (`scripts/upgrade-agent.sh`, root cron job via `midclt`, every minute): validates the request strictly (regular file, size limit, strict JSON with known keys, X.Y.Z that is a real tag; never sourced or eval'd), runs `update.sh`, reports through a read-only status folder; `--install`, `--uninstall`, `--status`
+- setup.sh creates the `upgrade/`, `upgrade-status/` and `.state/` folders with the right owners and installs the agent on TrueNAS
+- Test covering many household members and a list shared with several people
+
 ## [0.5.0] - 2026-11-15
 ### Added
 - Purchases ("Bought" on an item, Bought page): protection terms from the retailer policy (Costco 30 days, Best Buy Black Friday Price Guarantee when badged) or your own number of days; protected stores keep being checked even after the item stops alerting

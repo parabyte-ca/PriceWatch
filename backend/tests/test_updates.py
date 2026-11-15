@@ -1,0 +1,61 @@
+"""In-app updates: the app only writes a validated request; status comes from the agent's read-only folder."""
+
+import json
+from datetime import UTC, datetime
+
+import pytest
+
+from pricewatch.config import get_settings
+
+
+@pytest.fixture
+def folders(tmp_path, monkeypatch):
+    s = get_settings()
+    inbox, status = tmp_path / "upgrade", tmp_path / "upgrade-status"
+    inbox.mkdir()
+    status.mkdir()
+    monkeypatch.setattr(s, "upgrade_dir", inbox)
+    monkeypatch.setattr(s, "upgrade_status_dir", status)
+    (status / "agent.json").write_text(json.dumps({"agent_version": "1", "last_run": datetime.now(UTC).isoformat()}))
+    (status / "available.json").write_text(json.dumps({"tags": "v99.0.0,v0.5.0,v0.3.0", "checked_at": "x"}))
+    (status / "upgrade.log").write_text("line 1\nline 2\n")
+    return inbox, status
+
+
+def test_status_and_request(client, folders):
+    inbox, status = folders
+    r = client.get("/api/admin/updates").json()
+    assert r["agent_online"] and r["latest"] == "99.0.0" and r["update_available"]
+    assert r["log"] == ["line 1", "line 2"]
+    assert client.post("/api/admin/updates", json={"action": "update", "version": "1.2.3"}).status_code == 422
+    assert client.post("/api/admin/updates", json={"action": "update", "version": "1;rm"}).status_code == 422
+    assert client.post("/api/admin/updates", json={"action": "update", "version": "99.0.0"}).status_code == 202
+    req = json.loads((inbox / "request.json").read_text())
+    assert req["action"] == "update" and req["version"] == "99.0.0" and req["requested_by"] == "admin"
+    assert client.post("/api/admin/updates", json={"action": "rollback"}).status_code == 409  # one at a time
+    (inbox / "request.json").unlink()
+    (status / "status.json").write_text(json.dumps({"state": "running"}))
+    assert client.post("/api/admin/updates", json={"action": "check"}).status_code == 409
+
+
+def test_members_cannot_update(client, folders):
+    from pricewatch.db import session_scope
+    from pricewatch.models import User
+    from pricewatch.services import users as users_svc
+
+    r = client.post("/api/users", json={"username": "kid", "display_name": "Kid", "password": "password123"})
+    db = session_scope()
+    tok = users_svc.new_api_token(db.get(User, r.json()["id"]))
+    db.commit()
+    db.close()
+    h = {"Authorization": f"Bearer {tok}"}
+    assert client.get("/api/admin/updates", headers=h).status_code == 403
+    assert client.post("/api/admin/updates", json={"action": "check"}, headers=h).status_code == 403
+
+
+def test_not_mounted(client, monkeypatch, tmp_path):
+    monkeypatch.setattr(get_settings(), "upgrade_dir", tmp_path / "missing")
+    monkeypatch.setattr(get_settings(), "upgrade_status_dir", tmp_path / "missing2")
+    r = client.get("/api/admin/updates").json()
+    assert r["agent_installed"] is False
+    assert client.post("/api/admin/updates", json={"action": "check"}).status_code == 409

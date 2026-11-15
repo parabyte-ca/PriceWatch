@@ -19,6 +19,7 @@ from .api import extra as extra_api
 from .api import items as items_api
 from .api import purchases as purchases_api
 from .api import system as system_api
+from .api import updates as updates_api
 from .auth import AuthMiddleware, bootstrap, load_secret_key
 from .auth import router as auth_router
 from .config import get_settings
@@ -71,6 +72,7 @@ def create_app() -> FastAPI:
     app.include_router(extra_api.router)
     app.include_router(accounts_api.router)
     app.include_router(purchases_api.router)
+    app.include_router(updates_api.router)
 
     @app.get("/healthz")
     def healthz():

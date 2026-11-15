@@ -128,3 +128,24 @@ def test_members_cannot_manage_people(client, household):
     assert client.patch(f"/api/users/{household['sam_id']}", json={"display_name": "Samantha"}, headers=s).status_code == 200
     people = client.get("/api/users", headers=s).json()
     assert all(set(p) == {"id", "display_name"} for p in people)  # members see names only
+
+
+def test_many_people_and_a_list_shared_with_several(client, sent):
+    """No two-person assumption: six people, one list shared with four of them, each alerted separately."""
+    people = [make_user(client, f"user{i}", f"Person {i}") for i in range(6)]
+    owner_h, owner_id = people[0]
+    lst = client.post("/api/lists", json={"name": "Family gifts"}, headers=owner_h).json()
+    for h, _ in people[1:4]:
+        code = client.post(f"/api/lists/{lst['id']}/invites", headers=owner_h).json()["code"]
+        assert client.post("/api/lists/join", json={"code": code}, headers=h).status_code == 200
+    detail = next(x for x in client.get("/api/lists", headers=owner_h).json() if x["id"] == lst["id"])
+    assert len(detail["members"]) == 4
+    item = client.post("/api/items", json={"name": "Board game", "list_id": lst["id"], "target_price_cents": 5000},
+                       headers=people[2][0]).json()
+    for i, (h, _) in enumerate(people):
+        client.patch("/api/settings", json={"notify_urls": [f"ntfys://ntfy.sh/p{i}"]}, headers=h)
+    client.post(f"/api/items/{item['id']}/manual", json={"store": "Indigo", "price_cents": 4999}, headers=people[1][0])
+    notified = {a.user_id for a in sent if a.rule_type == "buy"}
+    assert notified == {uid for _, uid in people[:4]}  # members only; persons 4 and 5 are not on the list
+    assert client.get(f"/api/items/{item['id']}", headers=people[5][0]).status_code == 404
+    assert len(client.get("/api/users").json()) == 7  # admin plus six

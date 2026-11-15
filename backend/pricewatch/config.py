@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     breaker_blocks: int = 3
     breaker_hours: int = 6
     public_url: str = ""
+    # host upgrade agent folders (see scripts/upgrade-agent.sh)
+    upgrade_dir: Path = Path("/upgrade")
+    upgrade_status_dir: Path = Path("/upgrade-status")
     scheduler_enabled: bool = True
 
     # browser sidecar

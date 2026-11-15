@@ -54,6 +54,13 @@ else
   log "not running as root; make sure $DATA is writable by uid 568 (sudo chown -R 568:568 $DATA)"
 fi
 
+# ---- in-app update folders (see scripts/upgrade-agent.sh) ----
+mkdir -p upgrade upgrade-status .state
+if [ "$(id -u)" = "0" ]; then
+  chown 568:568 upgrade && chmod 750 upgrade
+  chown root:root upgrade-status .state && chmod 755 upgrade-status && chmod 700 .state
+fi
+
 # ---- port check ----
 running_here=$(docker ps --filter "name=^${CONTAINER}$" --format '{{.Names}}' || true)
 if [ -z "$running_here" ]; then
@@ -96,6 +103,11 @@ for _ in $(seq 1 60); do
       echo
       echo "  Sign in as: admin   password (stored in .env): $NEW_PASSWORD"
       echo
+    fi
+    if [ "$(id -u)" = "0" ] && command -v midclt >/dev/null; then
+      scripts/upgrade-agent.sh --install && log "in-app updates enabled (System page, Updates)"
+    else
+      log "to enable in-app updates on TrueNAS: sudo scripts/upgrade-agent.sh --install"
     fi
     log "next: open http://<truenas-ip>:$PORT, set a notification URL in Settings and send a test alert"
     exit 0

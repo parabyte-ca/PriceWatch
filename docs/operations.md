@@ -14,6 +14,13 @@ Recycle the browser nightly (memory creep). TrueNAS, System, Advanced, Cron Jobs
 docker restart pricewatch-browser
 ```
 
+## In-app updates
+
+The upgrade agent is a TrueNAS cron job (System, Advanced, Cron Jobs, "PriceWatch upgrade agent"), created by
+`sudo scripts/upgrade-agent.sh --install` (TrueNAS rewrites `/etc/cron.d` on upgrades, so it lives in the middleware).
+It runs every minute as root, reads `upgrade/request.json` only if it is a small regular file with strict JSON,
+and runs `update.sh` for a published release tag. Logs: `upgrade-status/upgrade.log` and `logs/update.log`.
+
 ## Datasets
 
 Create two datasets and point `PRICEWATCH_DATA_PATH` at the first:
