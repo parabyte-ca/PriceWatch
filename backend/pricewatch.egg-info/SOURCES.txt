@@ -1,0 +1,6 @@
+pyproject.toml
+pricewatch.egg-info/PKG-INFO
+pricewatch.egg-info/SOURCES.txt
+pricewatch.egg-info/dependency_links.txt
+pricewatch.egg-info/requires.txt
+pricewatch.egg-info/top_level.txt

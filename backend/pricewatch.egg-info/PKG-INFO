@@ -1,0 +1,27 @@
+Metadata-Version: 2.4
+Name: pricewatch
+Version: 0.1.0
+Summary: Self-hosted Canadian wishlist price tracker
+Requires-Python: >=3.12
+Requires-Dist: fastapi==0.163.1
+Requires-Dist: uvicorn[standard]==0.54.0
+Requires-Dist: pydantic==2.14.3
+Requires-Dist: pydantic-settings==2.16.3
+Requires-Dist: sqlalchemy==2.0.57
+Requires-Dist: alembic==1.20.1
+Requires-Dist: httpx==0.28.1
+Requires-Dist: beautifulsoup4==4.15.0
+Requires-Dist: lxml==6.1.3
+Requires-Dist: apscheduler==3.11.3
+Requires-Dist: apprise==2.2.0
+Requires-Dist: prometheus-client==0.26.0
+Requires-Dist: itsdangerous==2.2.0
+Requires-Dist: python-multipart==0.0.33
+Requires-Dist: rapidfuzz==3.14.6
+Requires-Dist: playwright==1.65.1
+Requires-Dist: tzdata==2026.6
+Provides-Extra: dev
+Requires-Dist: pytest==9.2.0; extra == "dev"
+Requires-Dist: pytest-asyncio==1.5.0; extra == "dev"
+Requires-Dist: respx==0.23.1; extra == "dev"
+Requires-Dist: ruff==0.17.5; extra == "dev"
