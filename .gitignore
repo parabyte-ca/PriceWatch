@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+frontend/dist/
+backend/pricewatch/static/
+data/
+.env
+*.db
+*.db-wal
+*.db-shm
