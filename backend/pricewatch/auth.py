@@ -16,7 +16,24 @@ from .schemas import LoginIn
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-OPEN_PATHS = ("/api/auth/", "/healthz")
+OPEN_PATHS = ("/api/auth/", "/healthz", "/api/actions/")
+
+
+def _token_ok(request: Request) -> bool:
+    """Personal API token for the iOS Shortcut and scripts: Authorization: Bearer <token>."""
+    header = request.headers.get("authorization", "")
+    if not header.lower().startswith("bearer "):
+        return False
+    supplied = header[7:].strip()
+    from .db import session_scope
+    from .services import settings_store
+
+    db = session_scope()
+    try:
+        token = settings_store.get(db, "api_token") or ""
+    finally:
+        db.close()
+    return bool(token) and hmac.compare_digest(supplied.encode(), token.encode())
 
 
 def load_secret_key(settings: Settings) -> str:
@@ -38,9 +55,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         protected = path.startswith("/api/") or path == "/metrics"
         if s.auth_mode == "password" and protected and not path.startswith(OPEN_PATHS):
-            if not request.session.get("user"):
+            if not request.session.get("user") and not _token_ok(request):
                 return JSONResponse({"detail": "Not authenticated"}, status_code=401)
         return await call_next(request)
+
+
+def ensure_api_token() -> None:
+    from .db import session_scope
+    from .services import settings_store
+
+    db = session_scope()
+    try:
+        if not settings_store.get(db, "api_token"):
+            settings_store.update(db, {"api_token": secrets.token_urlsafe(32)})
+    finally:
+        db.close()
 
 
 @router.get("/me")

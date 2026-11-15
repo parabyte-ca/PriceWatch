@@ -37,7 +37,7 @@ def test_jsonld_offer_with_strikethrough():
     assert p.currency == "CAD"
     assert p.in_stock is True
     assert p.condition == "new"
-    assert p.seller == "Example Electronics"
+    assert p.seller == "Best Buy"
     assert p.image == "https://images.example.ca/xm6-1.jpg"
 
 

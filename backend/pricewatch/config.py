@@ -25,12 +25,20 @@ class Settings(BaseSettings):
     # fetching
     user_agent: str | None = None
     contact: str = "self-hosted"
-    min_domain_interval: float = 5.0
-    domain_jitter: float = 3.0
+    min_domain_interval: float = 20.0
+    # extra random spacing as a fraction of the interval (0.3 = up to 30% longer)
+    domain_jitter: float = 0.3
     request_timeout: float = 20.0
     max_concurrency: int = 4
     default_interval_minutes: int = 360
-    hot_interval_minutes: int = 60
+    hot_interval_minutes: int = 120
+    blackfriday_interval_minutes: int = 30
+    blackfriday_max_items: int = 25
+    # schedule jitter as a fraction of the interval (0.3 = plus or minus 30%)
+    schedule_jitter: float = 0.3
+    breaker_blocks: int = 3
+    breaker_hours: int = 6
+    public_url: str = ""
     scheduler_enabled: bool = True
 
     # browser sidecar
@@ -47,6 +55,13 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("BRIGHTDATA_API_KEY", "PRICEWATCH_BRIGHTDATA_API_KEY"))
     brightdata_zone: str = Field(
         default="serp_api1", validation_alias=AliasChoices("BRIGHTDATA_ZONE", "PRICEWATCH_BRIGHTDATA_ZONE"))
+
+    keepa_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("KEEPA_API_KEY", "PRICEWATCH_KEEPA_API_KEY"))
+    changedetection_url: str | None = Field(
+        default=None, validation_alias=AliasChoices("CHANGEDETECTION_URL", "PRICEWATCH_CHANGEDETECTION_URL"))
+    changedetection_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("CHANGEDETECTION_API_KEY", "PRICEWATCH_CHANGEDETECTION_API_KEY"))
 
     @property
     def db_url(self) -> str:

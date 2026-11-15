@@ -3,7 +3,6 @@
 import sqlite3
 
 from alembic import command
-
 from pricewatch.migrate import alembic_config
 
 

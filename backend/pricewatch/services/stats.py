@@ -1,4 +1,4 @@
-"""Deal intelligence: lows, median, real discount, fake-sale flag, status badge."""
+"""Deal intelligence primitives: lows, medians, history confidence, fake-sale flag, buy decision."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -8,13 +8,34 @@ from statistics import median
 @dataclass
 class Point:
     at: datetime
-    price_cents: int
+    price_cents: int  # landed (or plain price, depending on the caller)
     was_price_cents: int | None = None
 
 
 def window_low(points: list[Point], now: datetime, days: int | None) -> int | None:
     pts = points if days is None else [p for p in points if p.at >= now - timedelta(days=days)]
     return min((p.price_cents for p in pts), default=None)
+
+
+def low_since(points: list[Point], since: datetime) -> int | None:
+    return min((p.price_cents for p in points if p.at >= since), default=None)
+
+
+def median_since(points: list[Point], since: datetime) -> int | None:
+    vals = [p.price_cents for p in points if p.at >= since]
+    return int(median(vals)) if vals else None
+
+
+def history_confidence(points: list[Point]) -> tuple[str, int]:
+    """LOW under 14 days of observations, MEDIUM 14 to 59, HIGH 60+. Returns (level, days)."""
+    if not points:
+        return "LOW", 0
+    days = (max(p.at for p in points) - min(p.at for p in points)).days
+    if days >= 60:
+        return "HIGH", days
+    if days >= 14:
+        return "MEDIUM", days
+    return "LOW", days
 
 
 def sale_start(points: list[Point]) -> datetime | None:
@@ -30,15 +51,6 @@ def sale_start(points: list[Point]) -> datetime | None:
     return start
 
 
-def baseline_median(points: list[Point], now: datetime, days: int = 30) -> tuple[int | None, int]:
-    """Median of prices in the window, excluding the current price run. Returns (median, sample count)."""
-    start = sale_start(points)
-    window = [p.price_cents for p in points if p.at >= now - timedelta(days=days) and (start is None or p.at < start)]
-    if not window:
-        return None, 0
-    return int(median(window)), len(window)
-
-
 def raised_before(points: list[Point], days: int = 14) -> bool:
     """True when the price went up during the `days` before the current price run began."""
     start = sale_start(points)
@@ -48,49 +60,41 @@ def raised_before(points: list[Point], days: int = 14) -> bool:
     return any(b.price_cents > a.price_cents for a, b in zip(prior, prior[1:], strict=False))
 
 
-def fake_sale(points: list[Point], now: datetime, pct: float, min_samples: int = 3) -> dict:
-    """Assess the current price on one source. A 'sale' is a stated was-price above the price."""
-    result = {"claims_sale": False, "fake": False, "reasons": [], "median_30_cents": None,
-              "real_discount_pct": None, "enough_history": False}
-    if not points:
-        return result
-    latest = points[-1]
-    med, n = baseline_median(points, now)
-    result["median_30_cents"] = med
-    result["enough_history"] = n >= min_samples
-    if med:
-        result["real_discount_pct"] = round((med - latest.price_cents) / med * 100, 1)
-    result["claims_sale"] = bool(latest.was_price_cents and latest.was_price_cents > latest.price_cents)
-    if not result["claims_sale"]:
-        return result
-    if result["enough_history"] and med and latest.price_cents > med * (1 - pct / 100):
-        result["fake"] = True
-        result["reasons"].append(f"not {pct:g}% below the observed 30-day median")
-    if raised_before(points):
-        result["fake"] = True
-        result["reasons"].append("price was raised in the 14 days before this sale")
-    return result
+def fake_sale(current: int, was_price: int | None, price_before_tax: int | None, seasonal_low: int | None,
+              offer_points: list[Point], buy_pct: float) -> tuple[bool, list[str]]:
+    """A stated sale (was-price above the price) that is not near the observed seasonal low."""
+    if not (was_price and price_before_tax and was_price > price_before_tax):
+        return False, []
+    reasons = []
+    if seasonal_low and current > seasonal_low * (1 + buy_pct / 100):
+        reasons.append(f"more than {buy_pct:g}% above the lowest price seen this season")
+    if raised_before(offer_points):
+        reasons.append("price was raised in the 14 days before this sale")
+    return bool(reasons), reasons
 
 
-def badge(
-    best_cents: int | None,
-    compare_cents: int | None,
-    target_cents: int | None,
-    low_30: int | None,
-    all_time_low: int | None,
-    is_fake: bool,
-    enough_history: bool,
-    good_within_pct: float,
-) -> str:
-    """compare_cents is the value compared to the target (price or landed, per setting)."""
-    if best_cents is None:
-        return "NO DATA"
-    if target_cents is not None and compare_cents is not None and compare_cents <= target_cents:
-        return "BUY NOW"
+@dataclass
+class Decision:
+    action: str  # BUY | BUY_AND_PROTECT | WAIT | NO_DATA
+    badge: str
+    reason: str
+
+
+def decide(current: int | None, compare: int | None, target: int | None, seasonal_low: int | None,
+           confidence: str, buy_pct: float, protect_pct: float, protection: str | None, is_fake: bool,
+           horizon: str) -> Decision:
+    if current is None:
+        return Decision("NO_DATA", "NO DATA", "No price yet")
+    if target is not None and compare is not None and compare <= target:
+        return Decision("BUY", "BUY NOW", "At or below your target")
+    if seasonal_low and confidence != "LOW":
+        if current <= seasonal_low * (1 + buy_pct / 100):
+            return Decision("BUY", "BUY NOW", f"Within {buy_pct:g}% of the seasonal low")
+        if protection and current <= seasonal_low * (1 + protect_pct / 100):
+            return Decision("BUY_AND_PROTECT", "BUY + PROTECT",
+                            f"Within {protect_pct:g}% of the seasonal low and covered by {protection}")
     if is_fake:
-        return "FAKE SALE"
-    if enough_history:
-        ref = min(x for x in (low_30, all_time_low) if x is not None) if (low_30 or all_time_low) else None
-        if ref is not None and best_cents <= ref * (1 + good_within_pct / 100):
-            return "GOOD"
-    return "WAIT"
+        return Decision("WAIT", "FAKE SALE", f"Advertised sale is not a real low; wait for {horizon}")
+    if confidence == "LOW":
+        return Decision("WAIT", "WAIT", "Building price history (under 14 days); buy only at your target")
+    return Decision("WAIT", "WAIT", f"Above the seasonal low; wait for {horizon}")

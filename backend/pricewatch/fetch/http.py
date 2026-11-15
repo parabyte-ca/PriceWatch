@@ -42,6 +42,22 @@ def parse_retry_after(value: str | None) -> int | None:
         return None
 
 
+CHALLENGE_MARKERS = (
+    "px-captcha", "_pxhd", "perimeterx", "captcha-delivery", "geo.captcha-delivery", "cf-chl-", "challenge-platform",
+    "cf_chl_opt", "/_incapsula_resource", "access denied", "robot or human", "are you a robot",
+    "pardon our interruption", "request unsuccessful. incapsula", "akamai bot", "bm-verify", "_abck",
+    "verify you are human", "unusual traffic",
+)
+
+
+def looks_like_challenge(html: str | None) -> bool:
+    """A 200 page that is really a bot challenge. Checked only when no price was parsed."""
+    if not html:
+        return True
+    head = html[:200_000].lower()
+    return any(marker in head for marker in CHALLENGE_MARKERS)
+
+
 @dataclass
 class FetchResult:
     url: str
@@ -61,7 +77,7 @@ class PoliteFetcher:
         self,
         user_agent: str,
         min_interval: float = 5.0,
-        jitter: float = 3.0,
+        jitter: float = 0.3,
         timeout: float = 20.0,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
@@ -95,7 +111,7 @@ class PoliteFetcher:
         interval = max(self.min_interval, min_interval or 0)
         last = self._last.get(domain)
         if last is not None:
-            wait = last + interval + random.uniform(0, self.jitter) - time.monotonic()
+            wait = last + interval * (1 + random.uniform(0, self.jitter)) - time.monotonic()
             if wait > 0:
                 await asyncio.sleep(wait)
         self._last[domain] = time.monotonic()

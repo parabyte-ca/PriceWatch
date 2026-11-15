@@ -6,14 +6,14 @@ from pricewatch.services import alerts, settings_store
 
 def test_dedup_same_key(db_session, monkeypatch):
     sent = []
-    monkeypatch.setattr(alerts, "send_apprise", lambda urls, t, b: (sent.append(t) or True, None))
+    monkeypatch.setattr(alerts, "send_all", lambda urls, a: (sent.append(a.title) or True, None))
     settings_store.update(db_session, {"notify_urls": ["ntfy://ntfy.sh/test"]})
     item = Item(name="X")
     db_session.add(item)
     db_session.commit()
-    a1 = alerts.raise_alert(db_session, item=item, rule="target", key="target:1:100", title="t", body="b")
-    a2 = alerts.raise_alert(db_session, item=item, rule="target", key="target:1:100", title="t", body="b")
-    a3 = alerts.raise_alert(db_session, item=item, rule="target", key="target:1:90", title="t", body="b")
+    a1 = alerts.raise_alert(db_session, item=item, rule="buy", key="buy:1:100", title="t", body="b")
+    a2 = alerts.raise_alert(db_session, item=item, rule="buy", key="buy:1:100", title="t", body="b")
+    a3 = alerts.raise_alert(db_session, item=item, rule="buy", key="buy:1:90", title="t", body="b")
     assert a1.status == "sent" and a2 is None and a3.status == "sent"
     assert len(sent) == 2
 
@@ -35,13 +35,13 @@ def test_quiet_hours_window():
 
 
 def test_deferred_then_flushed(db_session, monkeypatch):
-    monkeypatch.setattr(alerts, "send_apprise", lambda urls, t, b: (True, None))
+    monkeypatch.setattr(alerts, "send_all", lambda urls, a: (True, None))
     settings_store.update(db_session, {"notify_urls": ["ntfy://ntfy.sh/test"]})
     monkeypatch.setattr(alerts, "in_quiet_hours", lambda cfg, now=None: True)
     a = alerts.raise_alert(db_session, item=None, rule="drop_pct", key="k2", title="t", body="b")
     assert a.status == "deferred"
-    t = alerts.raise_alert(db_session, item=None, rule="target", key="k3", title="t", body="b")
-    assert t.status == "sent"  # target hits bypass quiet hours by default
+    t = alerts.raise_alert(db_session, item=None, rule="buy", key="k3", title="t", body="b")
+    assert t.status == "sent"  # buy alerts bypass quiet hours by default
     assert alerts.flush_deferred(db_session) == 0
     monkeypatch.setattr(alerts, "in_quiet_hours", lambda cfg, now=None: False)
     assert alerts.flush_deferred(db_session) == 1
@@ -50,3 +50,45 @@ def test_deferred_then_flushed(db_session, monkeypatch):
 
 def test_mask_url():
     assert settings_store.mask_url("ntfys://user:pass@ntfy.example.ca/topic") == "ntfys://ntfy.example.ca/***"
+
+
+def test_parse_ntfy_urls():
+    assert alerts.parse_ntfy("ntfy://mytopic") == {"base": "https://ntfy.sh", "topic": "mytopic", "auth": None}
+    assert alerts.parse_ntfy("ntfys://ntfy.example.ca/deals")["base"] == "https://ntfy.example.ca"
+    assert alerts.parse_ntfy("ntfys://u:p@ntfy.example.ca/deals")["auth"] == ("basic", "u", "p")
+    assert alerts.parse_ntfy("ntfys://tk_abc@ntfy.example.ca/deals")["auth"] == ("token", "tk_abc", None)
+    assert alerts.parse_ntfy("json://x/y") is None
+
+
+def test_ntfy_payload_has_actions(db_session, monkeypatch):
+    import httpx
+
+    from pricewatch.config import get_settings
+    from pricewatch.models import Alert
+
+    monkeypatch.setattr(get_settings(), "public_url", "https://pw.example.ca")
+    seen = {}
+
+    def handler(req):
+        import json
+        seen.update(json.loads(req.content))
+        return httpx.Response(200, json={})
+
+    alert = Alert(item_id=7, rule_type="buy", dedup_key="x", title="BUY NOW: X", body="b", url="https://shop.ca/x")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        alerts.send_ntfy(alerts.parse_ntfy("ntfys://ntfy.sh/t"), alert, c)
+    assert seen["topic"] == "t" and seen["click"] == "https://shop.ca/x"
+    labels = [a["label"] for a in seen["actions"]]
+    assert labels == ["Bought", "Snooze 24h", "Raise target"]
+    token = seen["actions"][1]["url"].rsplit("/", 1)[-1]
+    from urllib.parse import unquote
+    assert alerts.read_action_token(unquote(token)) == (7, "snooze")
+
+
+def test_digest_lists_items_and_pending(db_session):
+    from pricewatch.models import Alert
+    db_session.add(Alert(rule_type="drop_pct", dedup_key="d1", title="Price drop 12%: X", body="b", status="digest"))
+    db_session.commit()
+    title, body = alerts.build_digest(db_session)
+    assert title.startswith("PriceWatch digest")
+    assert "Price drop 12%: X" in body

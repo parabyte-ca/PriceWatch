@@ -26,10 +26,13 @@ PROVINCE_TAX: dict[str, tuple[str, Decimal]] = {
 DEFAULT_PROVINCE = "ON"
 
 
-def tax_rate(province: str | None) -> Decimal:
+def tax_rate(province: str | None, overrides: dict | None = None) -> Decimal:
+    """Combined rate in percent. `overrides` ({"ON": 13}) lets the user correct a rate without a release."""
     code = (province or DEFAULT_PROVINCE).upper()
     if code not in PROVINCE_TAX:
         raise ValueError(f"Unknown province code: {province}")
+    if overrides and code in overrides:
+        return Decimal(str(overrides[code]))
     return PROVINCE_TAX[code][1]
 
 
@@ -51,11 +54,12 @@ def effective_shipping(
     return default_shipping_cents
 
 
-def landed_price(price_cents: int, shipping_cents: int | None, province: str | None) -> dict:
+def landed_price(price_cents: int, shipping_cents: int | None, province: str | None,
+                 overrides: dict | None = None) -> dict:
     """Return pre-tax, tax, and landed totals in cents. Shipping is taxed like the goods."""
     ship = shipping_cents or 0
     subtotal = price_cents + ship
-    tax = _round_cents(Decimal(subtotal) * tax_rate(province) / Decimal(100))
+    tax = _round_cents(Decimal(subtotal) * tax_rate(province, overrides) / Decimal(100))
     return {
         "price_cents": price_cents,
         "shipping_cents": shipping_cents,
