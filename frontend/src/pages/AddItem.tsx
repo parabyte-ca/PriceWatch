@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, Item, money, toCents } from "../api";
+import { useSession } from "../session";
 
 interface Preview {
   url: string;
@@ -22,6 +23,10 @@ const firstUrl = (...values: (string | null)[]) => {
 
 export default function AddItem() {
   const nav = useNavigate();
+  const { lists } = useSession();
+  const writable = lists.filter((l) => l.role !== "viewer");
+  const [listId, setListId] = useState<string>("");
+  const chosenList = listId ? Number(listId) : undefined;
   const [params] = useSearchParams();
   const shared = firstUrl(params.get("url"), params.get("text"), params.get("title"));
   const [url, setUrl] = useState(shared);
@@ -68,7 +73,7 @@ export default function AddItem() {
     try {
       const item = await api<Item>("/api/items/from-url", {
         method: "POST",
-        json: { url: url.trim(), name: name || undefined, target_price_cents: toCents(target), hot },
+        json: { url: url.trim(), name: name || undefined, target_price_cents: toCents(target), hot, list_id: chosenList },
       });
       nav(`/items/${item.id}`);
     } catch (err) {
@@ -84,7 +89,7 @@ export default function AddItem() {
     try {
       const item = await api<Item>("/api/items", {
         method: "POST",
-        json: { name: manualName, brand: brand || null, model: model || null, target_price_cents: toCents(target) },
+        json: { name: manualName, brand: brand || null, model: model || null, target_price_cents: toCents(target), list_id: chosenList },
       });
       const [providers, settings] = await Promise.all([
         api<{ providers: unknown[] }>("/api/discovery/providers"),
@@ -103,6 +108,15 @@ export default function AddItem() {
   const p = preview?.product;
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      {writable.length > 1 && (
+        <div className="flex items-center gap-2 md:col-span-2">
+          <label className="label mb-0">Add to</label>
+          <select className="input w-auto" value={listId} onChange={(e) => setListId(e.target.value)}>
+            <option value="">My default list</option>
+            {writable.map((l) => <option key={l.id} value={l.id}>{l.name}{l.shared ? " (shared)" : ""}</option>)}
+          </select>
+        </div>
+      )}
       <div className="card space-y-3">
         <h2 className="text-lg font-semibold">Add by product URL</h2>
         <form onSubmit={doPreview} className="flex gap-2">
@@ -161,7 +175,7 @@ export default function AddItem() {
           <button className="btn-ghost" disabled={busy || !list.trim()} onClick={async () => {
             setBusy(true);
             try {
-              const r = await api<{ created: unknown[]; skipped: { line: string; reason: string }[] }>("/api/import", { method: "POST", json: { text: list } });
+              const r = await api<{ created: unknown[]; skipped: { line: string; reason: string }[] }>("/api/import", { method: "POST", json: { text: list, list_id: chosenList } });
               setImportResult(`Added ${r.created.length}${r.skipped.length ? `, skipped ${r.skipped.length} (${r.skipped.map((x) => x.reason).join("; ")})` : ""}.`);
               setList("");
             } catch (err) {

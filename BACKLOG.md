@@ -2,7 +2,7 @@
 
 Items not yet scheduled into a phase. Newest first.
 
-## Household accounts and shared lists (requested 2026-11-15)
+## Household accounts and shared lists (requested 2026-11-15) - DONE in v0.4.0
 
 1. **Separate identities.** Each person (you and your wife) gets their own login, wishlist, targets, alert rules,
    notification URLs, quiet hours and snoozes. Replaces the single admin password: `users` table (name, password

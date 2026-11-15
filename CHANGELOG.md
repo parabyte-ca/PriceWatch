@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0] - 2026-11-15
+### Added
+- Household accounts: per-person login (scrypt), lists, settings (province, alerts, quiet hours, notification URLs, digest, My Best Buy membership), snoozes, alerts and digests
+- Lists page: create, rename, delete empty lists; share with a single-use friend code (7 days, editor or viewer); leave or remove members
+- People admin: add people, reset passwords, disable accounts; personal API tokens (stored hashed, shown once)
+- `python -m pricewatch.reset_password <username>` for a locked-out admin
+
+### Changed
+- Sign-in asks for a username (`admin` for the first account); `PRICEWATCH_ADMIN_PASSWORD` sets the first account's password
+- Upgrade moves existing items to the admin's "My list" and personal settings to the admin's account (migration 0004, tested on a populated database)
+- Operational alerts (blocked retailers) go to admins only
+
 ## [0.3.0] - 2026-11-15
 ### Added
 - Buy rule from the 2026-11-15 delta review: seasonal low (since Oct 1 or 90 days, landed), history confidence (LOW/MEDIUM/HIGH), BUY within 2%, BUY + PROTECT within 5% when price protection covers the event, WAIT otherwise; rationale shown in the UI

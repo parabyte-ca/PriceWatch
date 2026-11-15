@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.3.0-blue)
+![Version](https://img.shields.io/badge/version-0.4.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,8 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- Household accounts: each person has their own login, lists, alert rules, notification URLs, quiet hours, province, snoozes and daily digest; prices are fetched once for everyone
+- Shared lists: the owner creates a single-use friend code (expires in 7 days, can edit or view only); the other person enters it on the Lists page. Leaving or removing someone never deletes price history
 - Wishlist with target and maximum prices, priority, hot items (every 2 hours; every 30 minutes for the top 25 in Black Friday mode), notes
 - Buy rule: BUY at or within 2% of the seasonal low (lowest landed price since Oct 1 or 90 days) or at your target; BUY + PROTECT within 5% when the retailer's price protection covers the rest of the event; otherwise WAIT, with a history confidence (LOW under 14 days, MEDIUM, HIGH 60+). LOW history never triggers a seasonal BUY
 - Black Friday board: one phone-friendly list sorted BUY, BUY + PROTECT, WAIT
@@ -34,7 +36,7 @@ there is history to compare against.
 - Price history chart per retailer, price-match flag per retailer
 - System page with per-domain success rates, backoff state and recent fetches
 - `/healthz` (database writable, data freshness, changedetection.io reachability), Prometheus `/metrics`, structured JSON logs, nightly `VACUUM INTO` backup at 03:30
-- Single admin password, or `none` behind reverse proxy authentication
+- Sign-in per person (scrypt password hashes, rate-limited), personal API tokens, or `none` behind reverse proxy authentication (everyone acts as the admin)
 - Mobile-first UI, installable as a home-screen app
 
 ## Requirements
@@ -59,7 +61,7 @@ admin password and prints it once, creates `data/` owned by uid 568, refuses to 
 port is taken, pulls the signed release image (or builds locally), builds the browser
 sidecar and waits for the health check.
 
-Then open `http://192.168.2.15:8086`, go to **Settings**, add an Apprise URL such as
+Then open `http://192.168.2.15:8086`, sign in as `admin`, go to **Settings**, add an Apprise URL such as
 `ntfys://ntfy.sh/<private-topic>`, and press **Send test alert**.
 
 Reverse proxy: add a Nginx Proxy Manager host (e.g. `pricewatch.moot.es` through the
@@ -68,6 +70,12 @@ served over HTTPS. For proxy authentication instead of the built-in login, set
 `PRICEWATCH_AUTH_MODE=none` and protect the host in the proxy.
 
 While waiting for history, see `docs/phase0-stopgap.md` (changedetection.io stopgap).
+
+### Adding your household
+
+Settings, People in this household, Add person (username, display name, temporary password). They sign in,
+change their password under Your account, and set their own notification URL. To share a list: Lists, Invite,
+then they enter the friend code under Join a shared list.
 
 ## Update
 ```bash
@@ -91,7 +99,8 @@ notification URLs are also editable on the Settings page.
 | `PRICEWATCH_DATA_PATH` | `./data` | Database, backups, `.secret_key`, failure screenshots |
 | `TZ` | `America/Toronto` | Quiet hours and display |
 | `PRICEWATCH_AUTH_MODE` | `password` | `password` or `none` (reverse proxy auth) |
-| `PRICEWATCH_ADMIN_PASSWORD` | generated | Admin login |
+| `PRICEWATCH_ADMIN_USERNAME` | `admin` | First account, created on first start |
+| `PRICEWATCH_ADMIN_PASSWORD` | generated | Password for the first account (only used until it is changed in the app) |
 | `PRICEWATCH_COOKIE_SECURE` | `false` | `true` behind HTTPS |
 | `PRICEWATCH_SECRET_KEY` | generated file | Session signing key |
 | `PRICEWATCH_CONTACT` | `self-hosted` | Appended to the User-Agent |
@@ -165,7 +174,7 @@ scripts/smoke.sh --browser                  # full stack: add item, alert, brows
 | Discovery adds nothing | Expand the results list on the item page to see why each listing was skipped; set a custom search query on the item |
 | Test alert says `logged` | No notification URL configured |
 | Browser checks fail | `sudo docker logs pricewatch-browser`; screenshots of failed renders are in `data/screenshots/` |
-| Forgot the password | It is `PRICEWATCH_ADMIN_PASSWORD` in `.env`; change it and run `sudo docker compose up -d` |
+| Forgot a password | The admin resets it under Settings, People. Admin locked out: `sudo docker exec -it pricewatch python -m pricewatch.reset_password admin` |
 | Logs | `sudo docker logs --tail 100 pricewatch` |
 
 ## Changelog
