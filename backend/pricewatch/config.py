@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -40,6 +40,13 @@ class Settings(BaseSettings):
 
     # notifications (comma separated Apprise URLs); can also be set in the UI
     notify_urls: str = ""
+
+    # search (SERP) providers for discovery; each is off without its key
+    serpapi_key: str | None = Field(default=None, validation_alias=AliasChoices("SERPAPI_KEY", "PRICEWATCH_SERPAPI_KEY"))
+    brightdata_api_key: str | None = Field(
+        default=None, validation_alias=AliasChoices("BRIGHTDATA_API_KEY", "PRICEWATCH_BRIGHTDATA_API_KEY"))
+    brightdata_zone: str = Field(
+        default="serp_api1", validation_alias=AliasChoices("BRIGHTDATA_ZONE", "PRICEWATCH_BRIGHTDATA_ZONE"))
 
     @property
     def db_url(self) -> str:

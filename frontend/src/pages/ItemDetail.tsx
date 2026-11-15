@@ -1,8 +1,9 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ago, api, Item, localTime, money, toCents, toDollars } from "../api";
+import { ago, api, EXCLUSIONS, Item, localTime, money, toCents, toDollars } from "../api";
 import Badge from "../components/Badge";
+import { Suggestions } from "../components/Discovery";
 
 interface Series {
   source_id: number;
@@ -29,7 +30,8 @@ export default function ItemDetail() {
   const [series, setSeries] = useState<Series[]>([]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
-  const [form, setForm] = useState({ target: "", max: "", hot: false, priority: 3, notes: "", amazon: "" });
+  const [form, setForm] = useState({ target: "", max: "", hot: false, priority: 3, notes: "", amazon: "", query: "" });
+  const [rules, setRules] = useState<Record<string, boolean>>({});
   const [newUrl, setNewUrl] = useState("");
   const [manual, setManual] = useState({ store: "", price: "", shipping: "" });
 
@@ -43,8 +45,9 @@ export default function ItemDetail() {
       setSeries(h.series);
       setForm({
         target: toDollars(it.target_price_cents), max: toDollars(it.max_price_cents), hot: it.hot,
-        priority: it.priority, notes: it.notes || "", amazon: it.amazon_history_note || "",
+        priority: it.priority, notes: it.notes || "", amazon: it.amazon_history_note || "", query: it.search_query || "",
       });
+      setRules(Object.fromEntries(EXCLUSIONS.map(([k]) => [k, it[k]])));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -87,6 +90,7 @@ export default function ItemDetail() {
     run(() => api(`/api/items/${id}`, { method: "PATCH", json: {
       target_price_cents: toCents(form.target), max_price_cents: toCents(form.max), hot: form.hot,
       priority: form.priority, notes: form.notes || null, amazon_history_note: form.amazon || null,
+      search_query: form.query || null, ...rules,
     } }), "Saved");
   };
 
@@ -181,12 +185,11 @@ export default function ItemDetail() {
               <th className="th text-right">Landed</th>
               <th className="th">Stock</th>
               <th className="th">Checked</th>
-              <th className="th">Status</th>
               <th className="th"></th>
             </tr>
           </thead>
           <tbody>
-            {item.sources?.map((src) => (
+            {item.sources?.filter((x) => x.status === "confirmed").map((src) => (
               <tr key={src.id} className="border-t border-slate-100 dark:border-slate-800">
                 <td className="td">
                   {src.url.startsWith("manual://") ? (
@@ -206,7 +209,6 @@ export default function ItemDetail() {
                 <td className="td whitespace-nowrap text-xs text-slate-500" title={`Next: ${localTime(src.next_check_at)}`}>
                   {ago(src.last_checked_at)}
                 </td>
-                <td className="td text-xs">{src.status}</td>
                 <td className="td whitespace-nowrap text-right">
                   {!src.url.startsWith("manual://") && (
                     <button className="btn-ghost px-2 py-1 text-xs"
@@ -225,6 +227,9 @@ export default function ItemDetail() {
                 </td>
               </tr>
             ))}
+            {!item.sources?.some((x) => x.status === "confirmed") && (
+              <tr><td className="td text-slate-500" colSpan={6}>No tracked sources yet. Add a retailer URL, log a price, or confirm a suggestion below.</td></tr>
+            )}
           </tbody>
         </table>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -249,6 +254,8 @@ export default function ItemDetail() {
           </form>
         </div>
       </div>
+
+      <Suggestions item={item} onChange={load} />
 
       <form className="card grid gap-3 md:grid-cols-3" onSubmit={saveEdits}>
         <h2 className="font-semibold md:col-span-3">Settings for this item</h2>
@@ -279,6 +286,20 @@ export default function ItemDetail() {
           <label className="label">Amazon 365-day price history note</label>
           <textarea className="input" rows={2} placeholder="Copied from Amazon's Price History panel" value={form.amazon}
             onChange={(e) => setForm({ ...form, amazon: e.target.value })} />
+        </div>
+        <div className="md:col-span-3">
+          <label className="label">Matching rules: exclude</label>
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {EXCLUSIONS.map(([k, label]) => (
+              <label key={k} className="flex items-center gap-1 text-sm">
+                <input type="checkbox" checked={Boolean(rules[k])} onChange={(e) => setRules({ ...rules, [k]: e.target.checked })} /> {label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="md:col-span-3">
+          <label className="label">Search query (optional, overrides brand + name + model)</label>
+          <input className="input" value={form.query} onChange={(e) => setForm({ ...form, query: e.target.value })} />
         </div>
         <div className="md:col-span-3">
           <button className="btn-primary">Save</button>

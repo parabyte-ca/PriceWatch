@@ -22,6 +22,10 @@ DEFAULTS: dict = {
     "fake_sale_pct": 5.0,
     "good_within_pct": 3.0,
     "browser_fallback": True,
+    "match_threshold": 85.0,
+    "auto_confirm_gtin": False,
+    "serp_monthly_limit": 200,
+    "discover_on_add": True,
 }
 
 SECRET_KEYS = {"notify_urls"}

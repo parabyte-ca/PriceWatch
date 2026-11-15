@@ -91,6 +91,7 @@ export default function Wishlist() {
                   <div className="text-xs text-slate-500">
                     {i.summary.best?.retailer || ""}
                     {i.summary.at_all_time_low && <span className="ml-1 font-semibold text-green-700">lowest seen</span>}
+                    {i.summary.suggested_count > 0 && <span className="ml-1 text-blue-600">{i.summary.suggested_count} to review</span>}
                   </div>
                 </td>
                 <td className="td text-right font-semibold">

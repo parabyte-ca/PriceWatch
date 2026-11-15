@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.0] - 2026-11-15
+### Added
+- Search provider interface with SerpApi and Bright Data (Google Shopping, gl=ca), 7-day cache, monthly limit and usage on the System page
+- Discovery: "Search Google Shopping" on each item and automatic search when adding by name; results stored as suggestions
+- Matching pipeline: GTIN with check digit, model number within brand, fuzzy title (rapidfuzz) with model conflict check; confidence and reasons shown
+- Confirm, reject and restore suggested listings; rejections are remembered
+- Per-item exclusion toggles and custom search query; global match threshold and GTIN auto-confirm
+- Refurbished or used listings detected during checks are recorded as `excluded`
+- Retailer free-shipping threshold and default shipping editable on the System page
+- Tracking parameters stripped from URLs
+
+### Fixed
+- Image signature check in setup.sh and update.sh now matches the repository name case-insensitively (GitHub reports `parabyte-ca/PriceWatch`)
+
 ## [0.1.0] - 2026-11-15
 ### Added
 - Wishlist items with targets, priority, hot flag and exclusion toggles

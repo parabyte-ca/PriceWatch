@@ -37,6 +37,7 @@ class ItemBase(BaseModel):
     exclude_bundles: bool = True
     exclude_variants: bool = True
     amazon_history_note: str | None = None
+    search_query: str | None = Field(default=None, max_length=300)
 
 
 class ItemCreate(ItemBase):
@@ -66,6 +67,7 @@ class ItemUpdate(BaseModel):
     exclude_bundles: bool | None = None
     exclude_variants: bool | None = None
     amazon_history_note: str | None = None
+    search_query: str | None = Field(default=None, max_length=300)
 
 
 class SourceOut(BaseModel):
@@ -77,6 +79,8 @@ class SourceOut(BaseModel):
     status: str
     match_confidence: float | None
     match_method: str | None
+    match_reasons: dict | None = None
+    discovered_via: str | None = None
     fetch_mode: str | None
     retailer_id: int | None
     retailer_name: str | None = None
@@ -124,6 +128,11 @@ class SourceUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["suggested", "confirmed", "rejected"] | None = None
     fetch_mode: Literal["auto", "http", "browser"] | None = None
+
+
+class DiscoverIn(BaseModel):
+    provider: Literal["serpapi", "brightdata"] | None = None
+    force: bool = False
 
 
 class ManualPriceIn(BaseModel):

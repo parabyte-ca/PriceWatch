@@ -12,7 +12,9 @@ from ..db import get_db
 from ..models import Alert, FetchRun, Item, Retailer, SourceLink
 from ..pricing import PROVINCE_TAX
 from ..schemas import AlertOut, RetailerOut, RetailerUpdate
+from ..serp import available_providers
 from ..services import alerts, settings_store
+from ..services.discovery import month_usage
 from ..timeutil import utcnow
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -41,6 +43,16 @@ def patch_settings(body: dict, db: Session = Depends(get_db)):
         current = settings_store.get(db, "notify_urls") or []
         masked = {settings_store.mask_url(u): u for u in current}
         body["notify_urls"] = [masked.get(u, u) for u in urls if u.strip()]
+    numeric = {"match_threshold": (50, 100), "serp_monthly_limit": (0, 100000), "alert_drop_pct": (1, 90),
+               "fake_sale_pct": (0, 50), "good_within_pct": (0, 50)}
+    for key, (lo, hi) in numeric.items():
+        if key in body:
+            try:
+                value = float(body[key])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(422, f"{key} must be a number") from exc
+            if not lo <= value <= hi:
+                raise HTTPException(422, f"{key} must be between {lo} and {hi}")
     for key in ("quiet_hours_start", "quiet_hours_end"):
         if key in body:
             try:
@@ -121,6 +133,10 @@ def system(db: Session = Depends(get_db)):
         "sources": db.scalar(select(func.count(SourceLink.id)).where(SourceLink.status == "confirmed")),
         "due_now": db.scalar(select(func.count(SourceLink.id)).where(
             SourceLink.status == "confirmed", SourceLink.next_check_at <= now)),
+        "search_providers": [
+            {"name": n, "used_this_month": month_usage(db, n),
+             "limit": int(settings_store.get(db, "serp_monthly_limit") or 0)} for n in available_providers()
+        ],
         "domains": [
             {"domain": d, "day": day.get(d), "week": week.get(d),
              "backoff_until": (retailers[d].backoff_until.isoformat() + "Z")

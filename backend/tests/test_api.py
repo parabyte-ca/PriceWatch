@@ -57,7 +57,7 @@ def test_add_by_url_and_target_alert(client, pages, sent):
     r = client.post("/api/items/from-url", json={"url": "https://www.bestbuy.ca/xm6"})
     assert r.status_code == 201, r.text
     item = r.json()
-    assert item["gtin"] == "4548736158563"
+    assert item["gtin"] == "4548736158566"
     assert item["summary"]["best_price_cents"] == 44999
     assert item["summary"]["best_landed_cents"] == round(44999 * 1.13)
     assert item["sources"][0]["retailer_name"] == "Best Buy Canada"
@@ -166,3 +166,17 @@ async def test_scheduler_tick_checks_due_sources(client, pages):
     assert s.next_check_at > utcnow()
     db.close()
     assert src["id"] not in scheduler.due_source_ids()
+
+
+def test_refurbished_listing_excluded_on_check(client, pages):
+    item = client.post("/api/items/from-url", json={"url": "https://www.bestbuy.ca/xm6"}).json()
+    sid = item["sources"][0]["id"]
+    pages["overrides"]["/xm6"] = fixture_html("jsonld_offer.html").replace("NewCondition", "RefurbishedCondition")
+    assert client.post(f"/api/sources/{sid}/check").json()["outcome"] == "excluded"
+    client.patch(f"/api/items/{item['id']}", json={"exclude_refurbished": False})
+    assert client.post(f"/api/sources/{sid}/check").json()["outcome"] == "ok"
+
+
+def test_tracking_params_stripped_on_add(client, pages):
+    item = client.post("/api/items/from-url", json={"url": "https://www.bestbuy.ca/xm6?utm_source=x&gclid=1"}).json()
+    assert item["sources"][0]["url"] == "https://www.bestbuy.ca/xm6"
