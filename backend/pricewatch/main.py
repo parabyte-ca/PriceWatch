@@ -3,6 +3,7 @@
 import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -13,9 +14,10 @@ from sqlalchemy import func, select, text
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__, scheduler
+from .api import extra as extra_api
 from .api import items as items_api
 from .api import system as system_api
-from .auth import AuthMiddleware, load_secret_key
+from .auth import AuthMiddleware, ensure_api_token, load_secret_key
 from .auth import router as auth_router
 from .config import get_settings
 from .db import get_engine, init_engine, session_scope
@@ -23,8 +25,9 @@ from .logging_setup import setup_logging
 from .metrics import ITEMS_GAUGE, SOURCES_GAUGE
 from .migrate import upgrade
 from .models import Item, SourceLink
-from .services import runtime
+from .services import changedetection, runtime
 from .services.retailers import seed_retailers
+from .timeutil import utcnow
 
 log = logging.getLogger(__name__)
 STATIC_DIR = Path(os.environ.get("PRICEWATCH_STATIC_DIR", Path(__file__).resolve().parent / "static"))
@@ -42,6 +45,7 @@ async def lifespan(app: FastAPI):
         seed_retailers(db)
     finally:
         db.close()
+    ensure_api_token()
     if s.auth_mode == "password" and not s.admin_password:
         log.warning("PRICEWATCH_ADMIN_PASSWORD is not set; login is disabled until it is")
     if s.scheduler_enabled:
@@ -62,16 +66,27 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(items_api.router)
     app.include_router(system_api.router)
+    app.include_router(extra_api.router)
 
     @app.get("/healthz")
     def healthz():
+        """DB must be writable for 200. Freshness and changedetection.io are reported, not fatal."""
         try:
-            with get_engine().connect() as conn:
-                conn.execute(text("SELECT 1"))
+            with get_engine().begin() as conn:
+                conn.execute(text("CREATE TEMP TABLE IF NOT EXISTS _health (x INTEGER)"))
+                conn.execute(text("INSERT INTO _health VALUES (1)"))
+                last = conn.execute(text("SELECT MAX(last_success_at) FROM source_links")).scalar()
             db_ok = True
         except Exception:  # noqa: BLE001
-            db_ok = False
+            db_ok, last = False, None
         body = {"status": "ok" if db_ok else "degraded", "version": __version__, "database": db_ok}
+        if last:
+            last_dt = last if isinstance(last, datetime) else datetime.fromisoformat(str(last))
+            age_h = round((utcnow() - last_dt).total_seconds() / 3600, 1)
+            body["last_success_hours"] = age_h
+            body["fresh"] = age_h < 12
+        if changedetection.configured():
+            body["changedetection"] = changedetection.reachable()
         return JSONResponse(body, status_code=200 if db_ok else 503)
 
     @app.get("/metrics")

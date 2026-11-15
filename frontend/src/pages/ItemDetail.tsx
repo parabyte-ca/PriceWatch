@@ -1,8 +1,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { ago, api, EXCLUSIONS, Item, localTime, money, toCents, toDollars } from "../api";
-import Badge from "../components/Badge";
+import Badge, { Confidence } from "../components/Badge";
 import { Suggestions } from "../components/Discovery";
 
 interface Series {
@@ -26,12 +26,18 @@ function Stat({ label, value, note }: { label: string; value: string; note?: str
 export default function ItemDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const urlAction = params.get("action");
   const [item, setItem] = useState<Item | null>(null);
   const [series, setSeries] = useState<Series[]>([]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
   const [form, setForm] = useState({ target: "", max: "", hot: false, priority: 3, notes: "", amazon: "", query: "" });
   const [rules, setRules] = useState<Record<string, boolean>>({});
+  const [cdEnabled, setCdEnabled] = useState(false);
+  useEffect(() => {
+    fetch("/healthz").then((r) => r.json()).then((h) => setCdEnabled(h.changedetection !== undefined)).catch(() => {});
+  }, []);
   const [newUrl, setNewUrl] = useState("");
   const [manual, setManual] = useState({ store: "", price: "", shipping: "" });
 
@@ -113,25 +119,54 @@ export default function ItemDetail() {
             </div>
             <Badge value={s.badge} />
           </div>
+          {urlAction === "bought" && item.active && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-green-100 p-2 text-sm text-green-900">
+              Bought it? Archiving stops checks and alerts for this item.
+              <button className="btn-primary px-2 py-1 text-xs" onClick={() => run(async () => {
+                await api(`/api/items/${id}`, { method: "PATCH", json: { active: false, notes: `${item.notes ? item.notes + "\n" : ""}Bought ${new Date().toLocaleDateString("en-CA")} at ${money(s.best_landed_cents)} landed (${s.best?.retailer || "unknown"}).` } });
+                setParams({});
+              }, "Archived as bought")}>Mark as bought</button>
+              <button className="btn-ghost px-2 py-1 text-xs" onClick={() => setParams({})}>Not yet</button>
+            </div>
+          )}
+          <div className={`rounded-lg p-2 text-sm ${s.decision === "BUY" ? "bg-green-50 text-green-900" : s.decision === "BUY_AND_PROTECT" ? "bg-teal-50 text-teal-900" : "bg-slate-100 dark:bg-slate-800"}`}>
+            <span className="font-semibold">{s.badge}:</span> {s.decision_reason}. <Confidence level={s.history_confidence} days={s.history_days} />
+            {s.snoozed && <span className="ml-2 text-amber-700">Alerts snoozed.</span>}
+          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Best landed" value={money(s.best_landed_cents)}
               note={s.best ? `${money(s.best.landed.price_cents)} + ${s.best.landed.shipping_known ? money(s.best.landed.shipping_cents) + " ship" : "shipping unknown"} + ${money(s.best.landed.tax_cents)} tax, ${s.best.retailer}` : undefined} />
             <Stat label="Target" value={money(item.target_price_cents)} />
-            <Stat label="30 / 60 / 90-day low" value={money(s.low_30_cents)} note={`${money(s.low_60_cents)} / ${money(s.low_90_cents)}`} />
-            <Stat label="All-time low (ours)" value={money(s.all_time_low_cents)}
-              note={s.real_discount_pct != null ? `Real discount vs 30-day median: ${s.real_discount_pct}%` : "Building history"} />
+            <Stat label="Seasonal low (landed)" value={money(s.seasonal_low_cents)}
+              note={s.distance_to_low_pct != null ? `Now ${s.distance_to_low_pct > 0 ? "+" : ""}${s.distance_to_low_pct}% vs the low` : "Since Oct 1 or 90 days"} />
+            <Stat label="30 / 60 / 90-day low" value={money(s.low_30_cents)}
+              note={`${money(s.low_60_cents)} / ${money(s.low_90_cents)}${s.real_discount_pct != null ? `; ${s.real_discount_pct}% below 60-day median` : ""}`} />
           </div>
           {s.fake_sale && (
             <div className="rounded-lg bg-amber-100 p-2 text-sm text-amber-900">
               Fake sale warning: {s.fake_sale_reasons.join("; ")}.
             </div>
           )}
+          {s.price_match.map((o) => (
+            <div key={o.at_source_id} className="rounded-lg bg-blue-50 p-2 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100">
+              Price match: ask <b>{o.at}</b> to match <a className="underline" href={o.match_url} target="_blank" rel="noreferrer">{o.match_to}</a> at {money(o.price_cents)} (save {money(o.saving_cents)} before tax).
+              {o.caveats.map((c) => <div key={c} className="text-xs text-amber-800">{c}</div>)}
+              {o.policy_notes && <div className="text-xs opacity-80">{o.policy_notes}</div>}
+            </div>
+          ))}
           <div className="flex flex-wrap gap-2">
             <button className="btn-ghost" onClick={() => run(() => api(`/api/items/${id}/check`, { method: "POST" }), "Checks queued; refresh in a minute")}>
               Check all now
             </button>
+            {s.snoozed ? (
+              <button className="btn-ghost" onClick={() => run(() => api(`/api/items/${id}/snooze`, { method: "DELETE" }), "Alerts back on")}>Unsnooze</button>
+            ) : (
+              <button className="btn-ghost" onClick={() => run(() => api(`/api/items/${id}/snooze`, { method: "POST", json: { hours: 24 } }), "Snoozed for 24 hours")}>Snooze 24h</button>
+            )}
             {asin && (
               <>
+                <a className="btn-ghost" href={`https://www.amazon.ca/dp/${asin}`} target="_blank" rel="noreferrer"
+                  title="Open the product and use Amazon's Price History panel to check">Check Amazon Price History</a>
                 <a className="btn-ghost" href={`https://keepa.com/#!product/6-${asin}`} target="_blank" rel="noreferrer">Keepa</a>
                 <a className="btn-ghost" href={`https://ca.camelcamelcamel.com/product/${asin}`} target="_blank" rel="noreferrer">CamelCamelCamel</a>
               </>
@@ -164,7 +199,7 @@ export default function ItemDetail() {
                   <ReferenceLine y={item.target_price_cents / 100} stroke="#16a34a" strokeDasharray="6 4" label="Target" />
                 )}
                 {series.map((sr, idx) => (
-                  <Line key={sr.source_id} dataKey={sr.name} type="stepAfter" connectNulls dot={false}
+                  <Line key={sr.source_id} dataKey={sr.name} type="stepAfter" connectNulls dot={sr.points.length < 4}
                     stroke={COLOURS[idx % COLOURS.length]} strokeWidth={2} />
                 ))}
               </LineChart>
@@ -198,6 +233,12 @@ export default function ItemDetail() {
                     <a href={src.url} target="_blank" rel="noreferrer" className="hover:underline">{src.retailer_name || src.url}</a>
                   )}
                   {src.price_match && <span className="ml-1 text-xs text-blue-600" title="Retailer has a price-match policy">PM</span>}
+                  <div className="text-xs text-slate-500">
+                    {[src.channel !== "online" ? src.channel : null,
+                      src.last_seller_type?.startsWith("marketplace") ? src.last_seller_type.replace("marketplace:", "sold by ") : null,
+                      src.last_condition && src.last_condition !== "new" ? src.last_condition.replace("_", " ") : null,
+                      src.fetch_mode && src.fetch_mode !== "auto" ? `via ${src.fetch_mode}` : null].filter(Boolean).join(" · ")}
+                  </div>
                   {src.last_error && <div className="text-xs text-red-600">{src.last_error}</div>}
                 </td>
                 <td className="td text-right">
@@ -217,6 +258,12 @@ export default function ItemDetail() {
                         flash(`Check result: ${r.outcome}`);
                       })}>
                       Check
+                    </button>
+                  )}
+                  {cdEnabled && !src.url.startsWith("manual://") && src.fetch_mode !== "changedetection" && (
+                    <button className="btn-ghost ml-1 px-2 py-1 text-xs" title="Let changedetection.io fetch this page instead"
+                      onClick={() => run(() => api(`/api/sources/${src.id}/changedetection`, { method: "POST" }), "Handed to changedetection.io")}>
+                      CD.io
                     </button>
                   )}
                   <button className="btn-ghost ml-1 px-2 py-1 text-xs text-red-600"
@@ -261,7 +308,7 @@ export default function ItemDetail() {
         <h2 className="font-semibold md:col-span-3">Settings for this item</h2>
         <div>
           <label className="label">Target price (before tax)</label>
-          <input className="input" inputMode="decimal" value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
+          <input className="input" inputMode="decimal" autoFocus={urlAction === "target"} value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
         </div>
         <div>
           <label className="label">Maximum acceptable</label>
@@ -275,7 +322,7 @@ export default function ItemDetail() {
             </select>
           </div>
           <label className="mb-2 flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={form.hot} onChange={(e) => setForm({ ...form, hot: e.target.checked })} /> Hot (check hourly)
+            <input type="checkbox" checked={form.hot} onChange={(e) => setForm({ ...form, hot: e.target.checked })} /> Hot (every 2 h; 30 min on Black Friday)
           </label>
         </div>
         <div className="md:col-span-2">

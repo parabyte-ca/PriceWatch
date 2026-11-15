@@ -8,6 +8,21 @@ from pathlib import Path
 from .config import get_settings
 
 
+def vacuum_into(dest: Path | None = None, keep: int = 14) -> Path:
+    """Compact consistent copy with VACUUM INTO, taken before the TrueNAS daily snapshot."""
+    s = get_settings()
+    backups = s.data_dir / "backups"
+    backups.mkdir(parents=True, exist_ok=True)
+    dest = dest or backups / f"pricewatch-{datetime.now():%Y%m%d}.sqlite"
+    if dest.exists():
+        dest.unlink()
+    with sqlite3.connect(s.data_dir / "pricewatch.db") as con:
+        con.execute("VACUUM INTO ?", (str(dest),))
+    for path in sorted(backups.glob("pricewatch-*.sqlite"))[:-keep]:
+        path.unlink()
+    return dest
+
+
 def backup(dest: Path | None = None, keep: int = 14) -> Path:
     s = get_settings()
     src = s.data_dir / "pricewatch.db"

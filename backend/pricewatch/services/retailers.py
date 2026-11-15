@@ -6,32 +6,38 @@ from sqlalchemy.orm import Session
 from ..fetch.http import domain_of
 from ..models import Retailer
 
-# Price-match notes are reminders to check the retailer's current policy, not policy text.
+# (domain, name, fetch mode, minimum seconds between requests). Price-match terms live in price_policies.
+# The Source was folded into Best Buy (Best Buy Express) and is not seeded.
 SEED = [
-    ("bestbuy.ca", "Best Buy Canada", True),
-    ("walmart.ca", "Walmart Canada", True),
-    ("canadiantire.ca", "Canadian Tire", True),
-    ("staples.ca", "Staples Canada", True),
-    ("memoryexpress.com", "Memory Express", True),
-    ("canadacomputers.com", "Canada Computers", True),
-    ("newegg.ca", "Newegg Canada", False),
-    ("thesource.ca", "The Source", False),
-    ("homedepot.ca", "Home Depot Canada", True),
-    ("costco.ca", "Costco Canada", False),
-    ("amazon.ca", "Amazon.ca", False),
-    ("visions.ca", "Visions Electronics", True),
-    ("londondrugs.com", "London Drugs", True),
-    ("thebay.com", "Hudson's Bay", False),
+    ("bestbuy.ca", "Best Buy Canada", "auto", None),
+    ("walmart.ca", "Walmart Canada", "browser", 60),
+    ("canadiantire.ca", "Canadian Tire", "auto", None),
+    ("sportchek.ca", "Sport Chek", "auto", None),
+    ("staples.ca", "Staples Canada", "auto", None),
+    ("memoryexpress.com", "Memory Express", "auto", None),
+    ("canadacomputers.com", "Canada Computers", "auto", None),
+    ("newegg.ca", "Newegg Canada", "auto", None),
+    ("homedepot.ca", "Home Depot Canada", "auto", None),
+    ("costco.ca", "Costco Canada", "browser", 60),
+    ("amazon.ca", "Amazon.ca", "keepa", None),
+    ("visions.ca", "Visions Electronics", "auto", None),
+    ("londondrugs.com", "London Drugs", "auto", None),
+    ("indigo.ca", "Indigo", "auto", None),
+    ("shoppersdrugmart.ca", "Shoppers Drug Mart", "auto", None),
 ]
 
 
 def seed_retailers(db: Session) -> None:
-    existing = set(db.scalars(select(Retailer.domain)).all())
-    for domain, name, pm in SEED:
+    from .policies import seed_policies
+
+    existing = {r.domain: r for r in db.scalars(select(Retailer)).all()}
+    for domain, name, mode, interval in SEED:
         if domain not in existing:
-            db.add(Retailer(domain=domain, name=name, price_match=pm,
-                            price_match_notes="Check the current price-match policy before relying on it." if pm else None))
+            db.add(Retailer(domain=domain, name=name, fetch_mode=mode, min_interval_seconds=interval))
+        elif domain == "amazon.ca" and existing[domain].fetch_mode == "auto":
+            existing[domain].fetch_mode = "keepa"  # no direct Amazon scraping by default
     db.commit()
+    seed_policies(db)
 
 
 def _pretty_name(domain: str) -> str:

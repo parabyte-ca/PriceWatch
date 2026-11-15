@@ -111,3 +111,25 @@ never solves CAPTCHAs.
   found occupied outside the registry before.
 - Install folder: `/mnt/shared_vol/websites/pricewatch` (same pattern as
   NetWatch). Data: `./data` inside it (database, `backups/`, `.secret_key`).
+
+## 8. Delta review, 2026-11-15 (v0.3.0)
+
+Adopted from the delta review:
+- Amazon: PA-API is retired and the Creators API needs 10 qualifying Associates sales, so Amazon.ca uses the
+  Keepa API (optional, paid) or manual entry. No direct Amazon scraping.
+- Buy rule on the seasonal low with history confidence; BUY + PROTECT where price protection covers the event.
+- Price-match terms are data (`price_policies`), corrected for Canada: Walmart has no competitor match since 2020,
+  Best Buy Canada and Staples exclude event prices, Canadian Tire is unverified and off, Best Buy US holiday
+  policy does not apply.
+- Politeness: 20 s per domain, plus or minus 30% schedule jitter, one browser page per domain, block detection on
+  200 challenge pages, circuit breaker, failed fetches never write a price.
+- Observation fields: channel, seller type, condition, coupon, fetch method, parse confidence.
+
+Decided differently:
+- **Fetch engine.** The review suggested changedetection.io as the fetch engine. PriceWatch's own fetcher was
+  already built and tested, so it stays primary; changedetection.io is an optional per-source bridge (user
+  decision, 2026-11-15).
+- **Stealth browsers.** The review suggested Patchright or Camoufox. Not adopted: evading bot protection conflicts
+  with the polite-scraping rules (honest User-Agent, stop on blocks). Blocked retailers fall back to manual entry.
+- **Retailer JSON endpoints** (Best Buy province pricing, Canadian Tire store pricing): not built yet because they
+  could not be tested from the build sandbox. Capture fixtures on TrueNAS with `scripts/capture_fixture.py` first.

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api } from "./api";
 import AddItem from "./pages/AddItem";
+import Board from "./pages/Board";
 import ItemDetail from "./pages/ItemDetail";
 import Login from "./pages/Login";
 import SettingsPage from "./pages/Settings";
@@ -16,6 +17,7 @@ interface Me {
 
 const nav = [
   ["/", "Wishlist"],
+  ["/board", "Board"],
   ["/add", "Add"],
   ["/settings", "Settings"],
   ["/system", "System"],
@@ -70,6 +72,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Wishlist />} />
         <Route path="/add" element={<AddItem />} />
+        <Route path="/share" element={<AddItem />} />
+        <Route path="/board" element={<Board />} />
         <Route path="/items/:id" element={<ItemDetail />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/system" element={<SystemPage />} />

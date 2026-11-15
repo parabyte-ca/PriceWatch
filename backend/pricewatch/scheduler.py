@@ -8,7 +8,7 @@ from sqlalchemy import or_, select
 
 from .db import session_scope
 from .models import Item, SourceLink
-from .services import alerts, runtime
+from .services import alerts, changedetection, events, runtime
 from .services.checker import check_source
 from .timeutil import utcnow
 
@@ -29,6 +29,7 @@ def due_source_ids(limit: int = 100) -> list[int]:
                 Item.active.is_(True),
                 SourceLink.status == "confirmed",
                 ~SourceLink.url.startswith("manual://"),
+                or_(SourceLink.fetch_mode.is_(None), SourceLink.fetch_mode.notin_(["manual", "changedetection"])),
                 or_(SourceLink.next_check_at.is_(None), SourceLink.next_check_at <= now),
             )
             .order_by(SourceLink.next_check_at.is_(None).desc(), SourceLink.next_check_at)
@@ -72,6 +73,41 @@ async def housekeeping() -> None:
     try:
         alerts.flush_deferred(db)
         alerts.check_failing_sources(db)
+        alerts.maybe_send_digest(db)
+    except Exception:  # noqa: BLE001
+        log.exception("housekeeping failed")
+    finally:
+        db.close()
+
+
+_last_backup_day = None
+
+
+async def nightly_backup() -> None:
+    """VACUUM INTO a dated copy at 03:30 local, before the TrueNAS daily snapshot."""
+    global _last_backup_day
+    from .backup import vacuum_into
+    from .config import get_settings
+
+    local = events.local_now()
+    if local.hour != 3 or local.minute < 30 or _last_backup_day == local.date():
+        return
+    if not get_settings().db_url.startswith("sqlite"):
+        return
+    try:
+        path = await asyncio.to_thread(vacuum_into)
+        _last_backup_day = local.date()
+        log.info("nightly backup", extra={"path": str(path)})
+    except Exception:  # noqa: BLE001
+        log.exception("nightly backup failed")
+
+
+async def changedetection_sync() -> None:
+    if not changedetection.configured():
+        return
+    db = session_scope()
+    try:
+        await asyncio.to_thread(changedetection.sync, db)
     finally:
         db.close()
 
@@ -82,6 +118,9 @@ def start() -> AsyncIOScheduler:
     _scheduler.add_job(tick, "interval", seconds=60, id="tick", max_instances=1, coalesce=True,
                        next_run_time=utcnow_aware())
     _scheduler.add_job(housekeeping, "interval", minutes=5, id="housekeeping", max_instances=1, coalesce=True)
+    _scheduler.add_job(nightly_backup, "interval", minutes=10, id="backup", max_instances=1, coalesce=True)
+    _scheduler.add_job(changedetection_sync, "interval", minutes=15, id="changedetection", max_instances=1,
+                       coalesce=True)
     _scheduler.start()
     return _scheduler
 

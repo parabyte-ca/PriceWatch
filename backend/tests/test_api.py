@@ -36,7 +36,7 @@ def pages():
 @pytest.fixture
 def sent(monkeypatch):
     out = []
-    monkeypatch.setattr(alerts, "send_apprise", lambda urls, t, b: (out.append((t, b)) or True, None))
+    monkeypatch.setattr(alerts, "send_all", lambda urls, a: (out.append((a.title, a.body)) or True, None))
     return out
 
 
@@ -71,7 +71,7 @@ def test_add_by_url_and_target_alert(client, pages, sent):
     client.patch(f"/api/items/{item['id']}", json={"target_price_cents": 46000})
     assert len(sent) == 1
     alerts_list = client.get("/api/alerts").json()
-    assert alerts_list[0]["rule_type"] == "target" and alerts_list[0]["status"] == "sent"
+    assert alerts_list[0]["rule_type"] == "buy" and alerts_list[0]["status"] == "sent"
 
 
 def test_check_records_history_and_drop_alert(client, pages, sent):
@@ -85,18 +85,22 @@ def test_check_records_history_and_drop_alert(client, pages, sent):
     assert prices == [14900, 11900]
     titles = [a["title"] for a in client.get("/api/alerts").json()]
     assert any("Price drop" in t for t in titles)
-    assert any("all-time low" in t for t in titles)
+    assert any("New low" in t for t in titles)
     detail = client.get(f"/api/items/{item['id']}").json()
-    assert detail["summary"]["low_30_cents"] == 11900
+    # lows are landed prices: (119.00 + 9.99 shipping) * 1.13 ON HST
+    assert detail["summary"]["low_30_cents"] == round(12899 * 1.13)
+    assert detail["summary"]["seasonal_low_cents"] == round(12899 * 1.13)
 
 
-def test_blocked_sets_backoff(client, pages):
+def test_blocked_opens_breaker_after_three(client, pages):
     item = client.post("/api/items/from-url", json={"url": "https://www.staples.ca/blocked"}).json()
     sid = item["sources"][0]["id"]
-    assert client.post(f"/api/sources/{sid}/check").json()["outcome"] == "blocked"
-    retailer = next(r for r in client.get("/api/retailers").json() if r["domain"] == "staples.ca")
-    assert retailer["backoff_until"] is not None
+    for _ in range(3):
+        assert client.post(f"/api/sources/{sid}/check").json()["outcome"] == "blocked"
     assert client.post(f"/api/sources/{sid}/check").json()["outcome"] == "backoff"
+    assert any(a["rule_type"] == "domain_blocked" for a in client.get("/api/alerts").json())
+    hist = client.get(f"/api/items/{item['id']}/history").json()
+    assert hist["series"] == []  # a block never writes a price
     system = client.get("/api/system").json()
     assert any(d["domain"] == "staples.ca" and d["backoff_until"] for d in system["domains"])
 

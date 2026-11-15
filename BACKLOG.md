@@ -2,6 +2,40 @@
 
 Items not yet scheduled into a phase. Newest first.
 
+## Household accounts and shared lists (requested 2026-11-15)
+
+1. **Separate identities.** Each person (you and your wife) gets their own login, wishlist, targets, alert rules,
+   notification URLs, quiet hours and snoozes. Replaces the single admin password: `users` table (name, password
+   hash with argon2 or bcrypt, per-user API token, role admin/member), `items.owner_id`, per-user settings rows.
+   Retailers, price policies, observations and fetching stay shared, so one product is fetched once even if both
+   of you track it.
+2. **Shared lists by invite.** Lists become first-class (`lists`, `list_members` with role owner/editor/viewer).
+   The owner creates a short, single-use "friend code" (e.g. `PW-7K3Q-9XMD`, expires in 7 days, stored hashed);
+   the other person enters it under Settings to join. Shared items show who added them; each member keeps their
+   own alert preferences for shared items. Leaving or revoking removes access without deleting history.
+- Migration: existing data moves to the first admin user and a default "My list"; back up first (update.sh does).
+- Fits the gift-lists item in v0.4 (per person, per occasion, budgets): build lists once for both.
+- Security: per-user sessions, rate-limited code redemption, codes never logged, admin can reset a member's password.
+
+## v0.4.0 (target Nov 22 to 25, from the 2026-11-15 delta review)
+
+1. Purchases and price-protection tracker: per purchase store retailer, price, date, channel; keep watching and
+   alert when a claimable drop occurs (Costco 30 days; Best Buy event guarantee on badged items; Staples 30/14 days
+   excluding event pricing). Highest value; ship by Nov 22 so early buys are protected.
+2. Proof package: full-page screenshot, URL, UTC and local timestamps, parsed price, seller, page hash, zipped.
+3. RedFlagDeals Hot Deals feed (see below; the review asks for the feed matcher by Nov 20).
+4. Gift lists per person and occasion with budget caps and spent vs remaining.
+5. Cash-back and gift card stacking notes per retailer (manual table; do not scrape Rakuten).
+6. Retailer JSON adapters (Best Buy province pricing, Canadian Tire / Sport Chek store pricing) once fixtures are
+   captured on TrueNAS; Costco and Walmart browser adapters with channel labels.
+
+## Phase 4 (after Cyber Monday)
+
+LLM match confirmation (Claude, Haiku-class, fuzzy 80 to 94 only, cached, user confirms), barcode scan,
+email-forward ingestion, Home Assistant sensors, weekly report with a Claude summary, Boxing Week mode
+(Dec 26 to 31), basket optimiser for free-shipping thresholds. Re-read Visualping's 2026 results (published
+Nov 27) and adjust the buy thresholds.
+
 ## RedFlagDeals intelligence (requested 2026-11-15, target: Phase 3, v0.3.0)
 
 Read redflagdeals.com Hot Deals threads and use them as hints and crowd context,

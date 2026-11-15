@@ -77,6 +77,10 @@ export interface Source {
   match_reasons: { reasons?: string[]; exclusions?: string[]; serp_price_cents?: number | null; merchant?: string | null } | null;
   discovered_via: string | null;
   fetch_mode: string | null;
+  channel: string;
+  external_id: string | null;
+  last_condition: string | null;
+  last_seller_type: string | null;
   retailer_name: string | null;
   price_match: boolean;
   last_price_cents: number | null;
@@ -90,8 +94,31 @@ export interface Source {
   landed: Landed | null;
 }
 
+export interface PriceMatch {
+  at: string;
+  at_source_id: number;
+  match_to: string;
+  match_url: string;
+  price_cents: number;
+  saving_cents: number;
+  caveats: string[];
+  policy_notes: string | null;
+}
+
 export interface Summary {
-  best: { source_id: number; url: string; retailer: string | null; landed: Landed; was_price_cents: number | null } | null;
+  best: { source_id: number; url: string; retailer: string | null; domain: string | null; landed: Landed;
+    was_price_cents: number | null; channel: string } | null;
+  seasonal_low_cents: number | null;
+  distance_to_low_pct: number | null;
+  history_confidence: "LOW" | "MEDIUM" | "HIGH";
+  history_days: number;
+  median_60_cents: number | null;
+  decision: "BUY" | "BUY_AND_PROTECT" | "WAIT" | "NO_DATA";
+  decision_reason: string;
+  protection: string | null;
+  price_match: PriceMatch[];
+  stale: boolean;
+  snoozed: boolean;
   best_price_cents: number | null;
   best_landed_cents: number | null;
   compare_cents: number | null;
@@ -100,7 +127,6 @@ export interface Summary {
   low_90_cents: number | null;
   all_time_low_cents: number | null;
   at_all_time_low: boolean;
-  median_30_cents: number | null;
   real_discount_pct: number | null;
   fake_sale: boolean;
   fake_sale_reasons: string[];

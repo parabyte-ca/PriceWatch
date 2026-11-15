@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .. import scheduler
+from ..config import get_settings
 from ..db import get_db
 from ..fetch.http import domain_of
 from ..models import Item, Observation, SourceLink
@@ -26,9 +27,21 @@ from ..schemas import (
 )
 from ..serp import available_providers
 from ..services import alerts, settings_store
-from ..services.checker import check_source, fetch_and_parse, record_observation, run_alerts, schedule_next
+from ..services.checker import (
+    CONFIDENCE,
+    apply_autofill,
+    check_source,
+    fetch_and_parse,
+    normal_condition,
+    record_observation,
+    run_alerts,
+    schedule_next,
+    seller_type_for,
+)
 from ..services.discovery import DiscoveryError, discover, month_usage
+from ..services.keepa import KeepaError, asin_from_url, fetch_product
 from ..services.matching import normalize_url
+from ..services.policies import policy_for
 from ..services.retailers import get_or_create_retailer
 from ..services.summary import _source_landed, summarize_items
 from ..timeutil import utcnow
@@ -45,10 +58,11 @@ def _load_item(db: Session, item_id: int) -> Item:
     return item
 
 
-def source_out(src: SourceLink, province: str) -> SourceOut:
+def source_out(src: SourceLink, province: str, db: Session | None = None) -> SourceOut:
     out = SourceOut.model_validate(src)
     out.retailer_name = src.retailer.name if src.retailer else None
-    out.price_match = bool(src.retailer and src.retailer.price_match)
+    policy = policy_for(db, src.retailer.domain) if db is not None and src.retailer else None
+    out.price_match = bool(policy and policy.enabled and policy.competitor_match)
     out.landed = _source_landed(src, province)
     return out
 
@@ -58,7 +72,7 @@ def item_out(db: Session, item: Item, summary: dict, with_sources: bool = False)
     out.summary = summary
     if with_sources:
         province = settings_store.get(db, "province")
-        out.sources = [source_out(s, province) for s in item.sources]
+        out.sources = [source_out(s, province, db) for s in item.sources]
     else:
         out.sources = None
     return out
@@ -120,6 +134,8 @@ async def preview(body: UrlIn, db: Session = Depends(get_db)):
     url = str(body.url)
     retailer = get_or_create_retailer(db, url)
     db.commit()
+    if retailer.fetch_mode == "keepa":
+        return await _keepa_preview(url, retailer)
     result, parsed, method = await fetch_and_parse(url, retailer, retailer.fetch_mode, use_cache=True)
     return {
         "url": url,
@@ -130,6 +146,26 @@ async def preview(body: UrlIn, db: Session = Depends(get_db)):
         "method": method,
         "product": parsed.to_dict() if parsed else None,
     }
+
+
+async def _keepa_preview(url: str, retailer) -> dict:
+    base = {"url": url, "domain": retailer.domain, "retailer": retailer.name, "method": "keepa"}
+    key = get_settings().keepa_api_key
+    asin = asin_from_url(url)
+    if not key or not asin:
+        return {**base, "outcome": "needs_keepa", "product": None,
+                "error": "Amazon.ca prices come from Keepa (KEEPA_API_KEY). Without it, save the item and log "
+                         "prices by hand; use Amazon's Price History panel to check."
+                if not key else "No ASIN found in this Amazon URL"}
+    try:
+        p = await fetch_product(key, asin, history=False)
+    except KeepaError as exc:
+        return {**base, "outcome": "error", "error": str(exc), "product": None}
+    return {**base, "outcome": "ok", "error": None, "product": {
+        "name": p.title, "brand": p.brand, "mpn": p.model, "gtin": p.gtin, "image": p.image, "currency": "CAD",
+        "price_cents": p.amazon_price_cents or p.buybox_price_cents, "was_price_cents": p.list_price_cents,
+        "in_stock": bool(p.amazon_price_cents or p.buybox_price_cents),
+        "seller": "Amazon.ca" if p.amazon_price_cents else "buy box (may be a marketplace seller)"}}
 
 
 def _add_source(db: Session, item: Item, url: str, fetch_mode: str | None = None,
@@ -150,21 +186,37 @@ def _add_source(db: Session, item: Item, url: str, fetch_mode: str | None = None
 
 @router.post("/items/from-url", response_model=ItemOut, status_code=201)
 async def create_from_url(body: FromUrlIn, db: Session = Depends(get_db)):
-    url = normalize_url(str(body.url))
+    item = await create_item_from_url(db, str(body.url), name=body.name, target=body.target_price_cents,
+                                      hot=body.hot, priority=body.priority)
+    item = _load_item(db, item.id)
+    return item_out(db, item, summarize_items(db, [item])[item.id], with_sources=True)
+
+
+async def create_item_from_url(db: Session, raw_url: str, *, name: str | None = None, target: int | None = None,
+                               hot: bool = False, priority: int = 3, fetch_now: bool = True) -> Item:
+    """Create an item with one source. Fetches immediately (cached from preview) unless fetch_now is False,
+    in which case the first scheduled check fills in the details (autofill)."""
+    url = normalize_url(raw_url)
     retailer = get_or_create_retailer(db, url)
     db.commit()
-    result, parsed, method = await fetch_and_parse(url, retailer, retailer.fetch_mode, use_cache=True)
-    name = body.name or (parsed.name if parsed else None) or domain_of(url)
-    item = Item(
-        name=name[:300],
-        brand=parsed.brand if parsed else None,
-        model=parsed.mpn if parsed else None,
-        gtin=parsed.gtin if parsed and parsed.gtin and re.fullmatch(r"\d{8,14}", parsed.gtin) else None,
-        image_url=parsed.image if parsed else None,
-        target_price_cents=body.target_price_cents,
-        hot=body.hot,
-        priority=body.priority,
-    )
+    mode = retailer.fetch_mode
+    if not fetch_now or mode in ("keepa", "manual", "changedetection"):
+        item = Item(name=(name or f"{retailer.name}: {url.split('/', 3)[-1][:120]}")[:300], target_price_cents=target,
+                    hot=hot, priority=priority, autofill=not name)
+        db.add(item)
+        db.flush()
+        src = _add_source(db, item, url)
+        src.next_check_at = utcnow()
+        db.commit()
+        if fetch_now and mode == "keepa" and get_settings().keepa_api_key:
+            db.close()
+            await check_source(src.id)
+        return item
+    result, parsed, method = await fetch_and_parse(url, retailer, mode, use_cache=True)
+    item = Item(name=(name or (parsed.name if parsed else None) or domain_of(url))[:300],
+                target_price_cents=target, hot=hot, priority=priority)
+    if parsed:
+        apply_autofill(item, None, parsed.brand, parsed.mpn, parsed.gtin, parsed.image)
     db.add(item)
     db.flush()
     src = _add_source(db, item, url)
@@ -176,8 +228,9 @@ async def create_from_url(body: FromUrlIn, db: Session = Depends(get_db)):
         _, previous = record_observation(
             db, src, price_cents=parsed.price_cents, was_price_cents=parsed.was_price_cents,
             shipping_cents=parsed.shipping_cents, in_stock=parsed.in_stock, seller=parsed.seller,
-            method=method)
-        schedule_next(src)
+            method=method, seller_type=seller_type_for(parsed.seller, retailer),
+            condition=normal_condition(parsed.condition), parse_confidence=CONFIDENCE.get(parsed.source or "", 0.6))
+        schedule_next(src, db=db)
         db.commit()
         run_alerts(db, src, previous)
     else:
@@ -185,8 +238,7 @@ async def create_from_url(body: FromUrlIn, db: Session = Depends(get_db)):
         src.last_checked_at = utcnow()
         schedule_next(src, minutes=60)
         db.commit()
-    item = _load_item(db, item.id)
-    return item_out(db, item, summarize_items(db, [item])[item.id], with_sources=True)
+    return item
 
 
 @router.get("/discovery/providers")
@@ -211,7 +263,7 @@ def add_source(item_id: int, body: SourceCreate, db: Session = Depends(get_db)):
     item = _load_item(db, item_id)
     src = _add_source(db, item, str(body.url), body.fetch_mode)
     db.commit()
-    return source_out(src, settings_store.get(db, "province"))
+    return source_out(src, settings_store.get(db, "province"), db)
 
 
 @router.patch("/sources/{source_id}", response_model=SourceOut)
@@ -224,7 +276,7 @@ def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_
     if src.status == "confirmed" and src.next_check_at is None:
         src.next_check_at = utcnow()
     db.commit()
-    return source_out(src, settings_store.get(db, "province"))
+    return source_out(src, settings_store.get(db, "province"), db)
 
 
 @router.delete("/sources/{source_id}", status_code=204)
@@ -262,7 +314,7 @@ def manual_price(item_id: int, body: ManualPriceIn, db: Session = Depends(get_db
     src = db.scalar(select(SourceLink).where(SourceLink.item_id == item.id, SourceLink.url == url))
     if src is None:
         src = SourceLink(item_id=item.id, url=url, title=body.store, status="confirmed", match_method="manual",
-                         match_confidence=1.0)
+                         match_confidence=1.0, channel=body.channel, fetch_mode="manual")
         if not url.startswith("manual://"):
             src.retailer_id = get_or_create_retailer(db, url).id
         db.add(src)
@@ -270,10 +322,13 @@ def manual_price(item_id: int, body: ManualPriceIn, db: Session = Depends(get_db
         db.refresh(src)
     _, previous = record_observation(
         db, src, price_cents=body.price_cents, was_price_cents=body.was_price_cents,
-        shipping_cents=body.shipping_cents, in_stock=body.in_stock, seller=body.store, method="manual")
+        shipping_cents=body.shipping_cents, in_stock=body.in_stock, seller=body.store, method="manual",
+        condition=body.condition, parse_confidence=CONFIDENCE["manual"])
+    if body.proof:
+        src.match_reasons = {**(src.match_reasons or {}), "last_proof": body.proof[:2000]}
     db.commit()
     run_alerts(db, src, previous)
-    return source_out(src, settings_store.get(db, "province"))
+    return source_out(src, settings_store.get(db, "province"), db)
 
 
 @router.get("/items/{item_id}/history")

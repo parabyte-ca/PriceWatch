@@ -8,6 +8,14 @@ from ..fetch.http import PoliteFetcher, default_user_agent
 _fetcher: PoliteFetcher | None = None
 in_flight: set[int] = set()
 _semaphore: asyncio.Semaphore | None = None
+_browser_locks: dict[str, asyncio.Lock] = {}
+
+
+def browser_lock(domain: str) -> asyncio.Lock:
+    """At most one browser page per domain at a time."""
+    if domain not in _browser_locks:
+        _browser_locks[domain] = asyncio.Lock()
+    return _browser_locks[domain]
 
 
 def get_fetcher() -> PoliteFetcher:
@@ -41,3 +49,4 @@ async def close() -> None:
         await _fetcher.close()
     _fetcher = None
     _semaphore = None
+    _browser_locks.clear()

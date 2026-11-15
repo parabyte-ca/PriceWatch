@@ -1,19 +1,30 @@
-"""Alert evaluation, de-duplication, quiet hours and delivery through Apprise."""
+"""Alerts: instant pushes for BUY / BUY + PROTECT transitions and back-in-stock, a daily digest for the rest.
+
+ntfy targets get action buttons (Bought, Snooze 24h, Raise target) when PRICEWATCH_PUBLIC_URL is set;
+every other Apprise target gets plain text.
+"""
 
 import logging
+import re
 from datetime import datetime, time, timedelta
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
+import httpx
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..metrics import ALERTS_TOTAL
-from ..models import Alert, Item, SourceLink
+from ..models import Alert, Item, Retailer, SourceLink
 from ..timeutil import utcnow
-from . import settings_store
+from . import events, settings_store
 
 log = logging.getLogger(__name__)
+
+INSTANT_RULES = {"buy", "back_in_stock", "domain_blocked", "test", "protection"}
+ACTION_MAX_AGE = 7 * 24 * 3600
 
 
 def money(cents: int | None) -> str:
@@ -39,6 +50,89 @@ def in_quiet_hours(cfg: dict, now_utc: datetime | None = None) -> bool:
     return local >= start or local < end
 
 
+# ---------- signed action links ----------
+
+def _serializer() -> URLSafeTimedSerializer:
+    from ..auth import load_secret_key
+
+    return URLSafeTimedSerializer(load_secret_key(get_settings()), salt="pricewatch-action")
+
+
+def action_token(item_id: int, action: str) -> str:
+    return _serializer().dumps({"i": item_id, "a": action})
+
+
+def read_action_token(token: str) -> tuple[int, str] | None:
+    try:
+        data = _serializer().loads(token, max_age=ACTION_MAX_AGE)
+    except BadSignature:
+        return None
+    return int(data["i"]), str(data["a"])
+
+
+# ---------- delivery ----------
+
+NTFY_RE = re.compile(r"^ntfys?://", re.I)
+
+
+def parse_ntfy(url: str) -> dict | None:
+    """Apprise-style ntfy URL -> publish settings. ntfy://topic, ntfys://host/topic, ntfys://user:pass@host/topic,
+    ntfys://tk_token@host/topic."""
+    if not NTFY_RE.match(url):
+        return None
+    secure = url.lower().startswith("ntfys")
+    parts = urlsplit(url)
+    path = [p for p in parts.path.split("/") if p]
+    auth = None
+    if parts.username and parts.password:
+        auth = ("basic", parts.username, parts.password)
+    elif parts.username:
+        auth = ("token", parts.username, None)
+    host = parts.hostname
+    if not path:  # ntfy://topic
+        return {"base": "https://ntfy.sh", "topic": host, "auth": auth}
+    netloc = host + (f":{parts.port}" if parts.port else "")
+    return {"base": f"{'https' if secure else 'http'}://{netloc}", "topic": path[0], "auth": auth}
+
+
+def ntfy_actions(alert: Alert) -> list[dict]:
+    base = get_settings().public_url.rstrip("/")
+    if not base or not alert.item_id:
+        return []
+    item_url = f"{base}/items/{alert.item_id}"
+    return [
+        {"action": "view", "label": "Bought", "url": f"{item_url}?action=bought", "clear": True},
+        {"action": "http", "label": "Snooze 24h", "method": "POST",
+         "url": f"{base}/api/actions/{quote(action_token(alert.item_id, 'snooze'))}", "clear": True},
+        {"action": "view", "label": "Raise target", "url": f"{item_url}?action=target"},
+    ]
+
+
+def send_ntfy(cfg: dict, alert: Alert, client: httpx.Client | None = None) -> None:
+    payload = {"topic": cfg["topic"], "title": alert.title, "message": alert.body,
+               "priority": 4 if alert.rule_type in ("buy", "protection") else 3,
+               "tags": ["shopping_cart"] if alert.rule_type == "buy" else []}
+    if alert.url:
+        payload["click"] = alert.url
+    actions = ntfy_actions(alert)
+    if actions:
+        payload["actions"] = actions
+    headers = {}
+    auth = None
+    if cfg["auth"] and cfg["auth"][0] == "token":
+        headers["Authorization"] = f"Bearer {cfg['auth'][1]}"
+    elif cfg["auth"]:
+        auth = (cfg["auth"][1], cfg["auth"][2])
+    own = client is None
+    client = client or httpx.Client(timeout=15)
+    try:
+        resp = client.post(cfg["base"] + "/", json=payload, headers=headers, auth=auth)
+        resp.raise_for_status()
+    finally:
+        if own:
+            client.close()
+
+
 def send_apprise(urls: list[str], title: str, body: str) -> tuple[bool, str | None]:
     import apprise
 
@@ -51,9 +145,31 @@ def send_apprise(urls: list[str], title: str, body: str) -> tuple[bool, str | No
     return bool(ok), None if ok else "Apprise reported a delivery failure"
 
 
+def send_all(urls: list[str], alert: Alert) -> tuple[bool, str | None]:
+    errors, sent = [], 0
+    others = []
+    for url in urls:
+        cfg = parse_ntfy(url)
+        if cfg:
+            try:
+                send_ntfy(cfg, alert)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"ntfy: {type(exc).__name__}")
+        else:
+            others.append(url)
+    if others:
+        body = alert.body + (f"\n{alert.url}" if alert.url else "")
+        ok, err = send_apprise(others, alert.title, body)
+        sent += 1 if ok else 0
+        if err:
+            errors.append(err)
+    return sent > 0, "; ".join(errors) or None
+
+
 def deliver(db: Session, alert: Alert, cfg: dict | None = None, force: bool = False) -> Alert:
     cfg = cfg or settings_store.get_all(db)
-    bypass = alert.rule_type in ("target", "test") and cfg.get("target_bypasses_quiet_hours", True)
+    bypass = alert.rule_type in ("buy", "test", "protection") and cfg.get("target_bypasses_quiet_hours", True)
     if not force and not bypass and in_quiet_hours(cfg):
         alert.status = "deferred"
         db.commit()
@@ -63,9 +179,8 @@ def deliver(db: Session, alert: Alert, cfg: dict | None = None, force: bool = Fa
         alert.status = "logged"
         alert.error = "No notification URLs configured"
     else:
-        body = alert.body + (f"\n{alert.url}" if alert.url else "")
         try:
-            ok, err = send_apprise(urls, alert.title, body)
+            ok, err = send_all(urls, alert)
         except Exception as exc:  # noqa: BLE001
             ok, err = False, f"{type(exc).__name__}: {exc}"
         alert.status = "sent" if ok else "failed"
@@ -79,75 +194,97 @@ def deliver(db: Session, alert: Alert, cfg: dict | None = None, force: bool = Fa
 
 
 def raise_alert(db: Session, *, item: Item | None, rule: str, key: str, title: str, body: str,
-                url: str | None = None, cfg: dict | None = None) -> Alert | None:
-    """Create and deliver an alert unless one with the same de-duplication key exists."""
+                url: str | None = None, cfg: dict | None = None, instant: bool = True) -> Alert | None:
+    """Create an alert unless one with the same key exists. Non-instant alerts wait for the digest."""
     exists = db.scalar(select(Alert.id).where(Alert.dedup_key == key).limit(1))
     if exists:
         return None
-    alert = Alert(item_id=item.id if item else None, rule_type=rule, dedup_key=key,
-                  title=title, body=body, url=url)
+    alert = Alert(item_id=item.id if item else None, rule_type=rule, dedup_key=key, title=title, body=body, url=url)
     db.add(alert)
     db.flush()
+    if not instant:
+        alert.status = "digest"
+        db.commit()
+        return alert
     return deliver(db, alert, cfg)
+
+
+def _recent(db: Session, item_id: int, rule: str, hours: float) -> bool:
+    since = utcnow() - timedelta(hours=hours)
+    return db.scalar(select(Alert.id).where(Alert.item_id == item_id, Alert.rule_type == rule,
+                                            Alert.created_at >= since).limit(1)) is not None
 
 
 def evaluate_item(db: Session, item: Item, summary: dict, *, source: SourceLink | None = None,
                   previous_price: int | None = None, previous_in_stock: bool | None = None,
                   previous_atl: int | None = None) -> list[Alert]:
-    """Check alert triggers for an item after a new observation or a target change."""
+    """Alerts after a new observation or a target change."""
     cfg = settings_store.get_all(db)
     raised: list[Alert] = []
+    if item.snoozed_until and item.snoozed_until > utcnow():
+        return raised
     best = summary.get("best")
+    bf = events.blackfriday_active(cfg)
 
     def add(alert: Alert | None) -> None:
         if alert:
             raised.append(alert)
 
-    if (cfg["alert_target"] and best and item.target_price_cents is not None
-            and summary["compare_cents"] is not None and summary["compare_cents"] <= item.target_price_cents):
-        basis = "landed" if cfg["target_basis"] == "landed" else "price"
-        add(raise_alert(
-            db, item=item, rule="target",
-            key=f"target:{item.id}:{summary['compare_cents']}",
-            title=f"BUY NOW: {item.name} at {money(best['landed']['price_cents'])}",
-            body=(f"{best['retailer'] or 'Retailer'}: {money(best['landed']['price_cents'])} "
-                  f"({money(best['landed']['landed_cents'])} landed in {cfg['province']}). "
-                  f"Your target ({basis}) is {money(item.target_price_cents)}."),
-            url=best["url"], cfg=cfg))
+    if cfg["alert_target"] and best and summary["decision"] in ("BUY", "BUY_AND_PROTECT"):
+        landed = best["landed"]["landed_cents"]
+        if not (bf and _recent(db, item.id, "buy", 2)):
+            label = "BUY NOW" if summary["decision"] == "BUY" else "BUY + PROTECT"
+            add(raise_alert(
+                db, item=item, rule="buy", key=f"buy:{item.id}:{summary['decision']}:{landed}",
+                title=f"{label}: {item.name} at {money(best['landed']['price_cents'])}",
+                body=(f"{best['retailer'] or 'Retailer'}: {money(best['landed']['price_cents'])} "
+                      f"({money(landed)} landed in {cfg['province']}). {summary['decision_reason']}. "
+                      f"Seasonal low {money(summary['seasonal_low_cents'])}, history {summary['history_confidence']}."
+                      + (f" Target {money(item.target_price_cents)}." if item.target_price_cents else "")),
+                url=best["url"], cfg=cfg))
 
     if source is None or source.last_price_cents is None:
         return raised
     price = source.last_price_cents
     store = source.retailer.name if source.retailer else "source"
 
-    if (cfg["alert_drop"] and previous_price and price < previous_price
-            and (previous_price - price) / previous_price * 100 >= float(cfg["alert_drop_pct"])):
+    if cfg["alert_back_in_stock"] and previous_in_stock is False and source.last_in_stock is True:
+        add(raise_alert(
+            db, item=item, rule="back_in_stock", key=f"stock:{source.id}:{utcnow():%Y-%m-%d}",
+            title=f"Back in stock: {item.name}", body=f"{store} has it again at {money(price)}.",
+            url=source.url, cfg=cfg))
+
+    if previous_price and price < previous_price and \
+            (previous_price - price) / previous_price * 100 >= float(cfg["alert_drop_pct"]):
         pct = (previous_price - price) / previous_price * 100
         add(raise_alert(
             db, item=item, rule="drop_pct", key=f"drop:{source.id}:{price}",
-            title=f"Price drop {pct:.0f}%: {item.name}",
-            body=f"{store}: {money(previous_price)} to {money(price)}.", url=source.url, cfg=cfg))
+            title=f"Price drop {pct:.0f}%: {item.name}", body=f"{store}: {money(previous_price)} to {money(price)}.",
+            url=source.url, cfg=cfg, instant=bool(cfg["alert_drop"])))
 
-    if (cfg["alert_all_time_low"] and previous_atl is not None and price < previous_atl
-            and source.last_in_stock is not False):
+    if previous_atl is not None and price < previous_atl and source.last_in_stock is not False:
         add(raise_alert(
             db, item=item, rule="all_time_low", key=f"atl:{item.id}:{price}",
-            title=f"New all-time low: {item.name} at {money(price)}",
-            body=f"{store}: {money(price)} (previous low {money(previous_atl)}).", url=source.url, cfg=cfg))
-
-    if cfg["alert_back_in_stock"] and previous_in_stock is False and source.last_in_stock is True:
-        add(raise_alert(
-            db, item=item, rule="back_in_stock",
-            key=f"stock:{source.id}:{utcnow():%Y-%m-%d}",
-            title=f"Back in stock: {item.name}",
-            body=f"{store} has it again at {money(price)}.", url=source.url, cfg=cfg))
+            title=f"New low: {item.name} at {money(price)}",
+            body=f"{store}: {money(price)} (previous low {money(previous_atl)}).",
+            url=source.url, cfg=cfg, instant=bool(cfg["alert_all_time_low"])))
     return raised
+
+
+def domain_blocked(db: Session, retailer: Retailer) -> Alert | None:
+    cfg = settings_store.get_all(db)
+    until = events.local_now(retailer.backoff_until) if retailer.backoff_until else None
+    return raise_alert(
+        db, item=None, rule="domain_blocked", key=f"blocked:{retailer.domain}:{utcnow():%Y-%m-%dT%H}",
+        title=f"{retailer.name} is blocking checks",
+        body=(f"{retailer.consecutive_blocks} blocked fetches in a row on {retailer.domain}. Paused until "
+              f"{until:%a %H:%M}" if until else f"{retailer.consecutive_blocks} blocked fetches on {retailer.domain}.")
+        + " Add prices by hand meanwhile.",
+        cfg=cfg, instant=bool(cfg.get("alert_domain_blocked", True)))
 
 
 def check_failing_sources(db: Session, hours: int = 24) -> list[Alert]:
     cfg = settings_store.get_all(db)
-    if not cfg["alert_source_failing"]:
-        return []
     cutoff = utcnow() - timedelta(hours=hours)
     rows = db.scalars(
         select(SourceLink).where(SourceLink.status == "confirmed", SourceLink.consecutive_failures > 0)
@@ -162,7 +299,7 @@ def check_failing_sources(db: Session, hours: int = 24) -> list[Alert]:
             title=f"Source failing: {src.item.name}",
             body=(f"{src.retailer.name if src.retailer else src.url} has failed for more than {hours} hours. "
                   f"Last error: {src.last_error or 'unknown'}"),
-            url=src.url, cfg=cfg)
+            url=src.url, cfg=cfg, instant=bool(cfg["alert_source_failing"]))
         if alert:
             raised.append(alert)
     return raised
@@ -176,3 +313,65 @@ def flush_deferred(db: Session) -> int:
     for alert in rows:
         deliver(db, alert, cfg, force=True)
     return len(rows)
+
+
+# ---------- digest ----------
+
+def build_digest(db: Session) -> tuple[str, str]:
+    from .summary import summarize_items
+
+    items = list(db.scalars(select(Item).where(Item.active.is_(True))).all())
+    summaries = summarize_items(db, items)
+    local = events.local_now()
+    with_data = [(i, summaries[i.id]) for i in items if summaries[i.id]["distance_to_low_pct"] is not None]
+    with_data.sort(key=lambda x: (x[1]["decision"] not in ("BUY", "BUY_AND_PROTECT"), x[1]["distance_to_low_pct"]))
+    lines = []
+    if with_data:
+        lines.append("Closest to the seasonal low:")
+        for item, s in with_data[:10]:
+            lines.append(f"- {s['badge']}: {item.name} {money(s['best_landed_cents'])} landed, "
+                         f"{s['distance_to_low_pct']:+.1f}% vs low {money(s['seasonal_low_cents'])} "
+                         f"({s['history_confidence']}, {s['best']['retailer'] if s['best'] else ''})")
+    opps = [(i, s) for i, s in ((i, summaries[i.id]) for i in items) if s["price_match"]]
+    if opps:
+        lines.append("Price match opportunities:")
+        for item, s in opps[:5]:
+            o = s["price_match"][0]
+            lines.append(f"- {item.name}: ask {o['at']} to match {o['match_to']} at {money(o['price_cents'])}")
+    stale = [i for i in items if summaries[i.id]["stale"] and summaries[i.id]["source_count"]]
+    if stale:
+        lines.append(f"No successful check in 24 hours ({len(stale)}): " + ", ".join(i.name for i in stale[:8]))
+    blocked = db.scalars(select(Retailer).where(Retailer.backoff_until > utcnow())).all()
+    if blocked:
+        lines.append("Paused domains: " + ", ".join(f"{r.domain} until {events.local_now(r.backoff_until):%a %H:%M}"
+                                                     for r in blocked))
+    pending = db.scalars(select(Alert).where(Alert.status == "digest")).all()
+    if pending:
+        lines.append("Other changes:")
+        lines.extend(f"- {a.title}" for a in pending[:10])
+        for a in pending:
+            a.status = "in_digest"
+    if not lines:
+        lines.append("Nothing to report yet. Add items and let history build.")
+    title = f"PriceWatch digest, {local:%a %b} {local.day}"
+    return title, "\n".join(lines)
+
+
+def maybe_send_digest(db: Session, now_utc: datetime | None = None) -> Alert | None:
+    cfg = settings_store.get_all(db)
+    if not cfg.get("digest_enabled", True):
+        return None
+    local = events.local_now(now_utc)
+    slots = [("am", cfg["digest_time"])]
+    if events.blackfriday_active(cfg, now_utc):
+        slots.append(("pm", cfg["digest_time_blackfriday"]))
+    for slot, hhmm in slots:
+        at = _parse_hhmm(hhmm)
+        if local.time() < at or local.time() > (datetime.combine(local.date(), at) + timedelta(hours=3)).time():
+            continue
+        key = f"digest:{local.date().isoformat()}:{slot}"
+        if db.scalar(select(Alert.id).where(Alert.dedup_key == key)):
+            continue
+        title, body = build_digest(db)
+        return raise_alert(db, item=None, rule="digest", key=key, title=title, body=body, cfg=cfg)
+    return None

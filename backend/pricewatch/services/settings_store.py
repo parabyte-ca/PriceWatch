@@ -14,11 +14,12 @@ DEFAULTS: dict = {
     "target_bypasses_quiet_hours": True,
     "notify_urls": [],
     "alert_target": True,
-    "alert_drop": True,
+    "alert_drop": False,
     "alert_drop_pct": 10.0,
-    "alert_all_time_low": True,
+    "alert_all_time_low": False,
     "alert_back_in_stock": True,
-    "alert_source_failing": True,
+    "alert_source_failing": False,
+    "alert_domain_blocked": True,
     "fake_sale_pct": 5.0,
     "good_within_pct": 3.0,
     "browser_fallback": True,
@@ -26,9 +27,21 @@ DEFAULTS: dict = {
     "auto_confirm_gtin": False,
     "serp_monthly_limit": 200,
     "discover_on_add": True,
+    "season_start": "2026-10-01",
+    "blackfriday_mode": True,
+    "blackfriday_start": "2026-11-26T00:00",
+    "blackfriday_end": "2026-12-01T23:59",
+    "buy_within_pct": 2.0,
+    "protect_within_pct": 5.0,
+    "digest_enabled": True,
+    "digest_time": "07:30",
+    "digest_time_blackfriday": "19:30",
+    "my_best_buy_member": False,
+    "tax_overrides": {},
+    "api_token": "",
 }
 
-SECRET_KEYS = {"notify_urls"}
+SECRET_KEYS = {"notify_urls", "api_token"}
 
 
 def get_all(db: Session) -> dict:
@@ -74,6 +87,8 @@ def mask_url(url: str) -> str:
 def public_view(values: dict) -> dict:
     out = dict(values)
     out["notify_urls"] = [mask_url(u) for u in values.get("notify_urls") or []]
+    token = values.get("api_token") or ""
+    out["api_token"] = f"{token[:4]}...{token[-4:]}" if token else ""
     out["env_notify_urls"] = [
         mask_url(u.strip()) for u in get_settings().notify_urls.split(",") if u.strip()
     ]

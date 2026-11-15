@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.2.0-blue)
+![Version](https://img.shields.io/badge/version-0.3.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,7 +10,14 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
-- Wishlist with target and maximum prices, priority, hot items (checked hourly), notes
+- Wishlist with target and maximum prices, priority, hot items (every 2 hours; every 30 minutes for the top 25 in Black Friday mode), notes
+- Buy rule: BUY at or within 2% of the seasonal low (lowest landed price since Oct 1 or 90 days) or at your target; BUY + PROTECT within 5% when the retailer's price protection covers the rest of the event; otherwise WAIT, with a history confidence (LOW under 14 days, MEDIUM, HIGH 60+). LOW history never triggers a seasonal BUY
+- Black Friday board: one phone-friendly list sorted BUY, BUY + PROTECT, WAIT
+- Price-match opportunities from editable per-retailer policies (Best Buy and Staples event exclusions, Costco 30-day adjustment, Walmart no competitor match, Canadian Tire unverified and off)
+- Amazon.ca through the Keepa API (optional, paid); history is seeded on first add. No direct Amazon scraping
+- Optional changedetection.io bridge: hand any source to a changedetection.io restock watch and PriceWatch reads its price and stock
+- Quick add: paste a list, bookmarklet, Android share target, iPhone Shortcut with a personal API token
+- Every observation records channel, seller type (first party or marketplace), condition, coupon, fetch method and parse confidence; marketplace and non-new offers are kept but not compared by default
 - Add an item by pasting a product URL: name, brand, MPN, GTIN, image and price are read from schema.org JSON-LD
 - Several retailer URLs per item; manual price entry for in-store or unsupported sites
 - Discovery through Google Shopping Canada (SerpApi or Bright Data, optional keys): candidate listings are matched and shown as suggestions to confirm or reject; rejections are remembered; results cached 7 days with a monthly search limit
@@ -19,20 +26,20 @@ there is history to compare against.
 - Tracking parameters (utm, gclid, srsltid and similar) are stripped from URLs so duplicates are caught
 - Generic adapter: JSON-LD Product/Offer (including `@graph`, `AggregateOffer`, strikethrough prices, shipping), microdata, OpenGraph; per-retailer CSS selector overrides
 - Playwright browser sidecar for JavaScript-rendered pages (per retailer or automatic fallback)
-- Polite fetching: robots.txt, 5 s minimum per domain plus jitter, ETag/Last-Modified, short response cache, honest User-Agent, automatic backoff on 403/429/503
+- Polite fetching: robots.txt, 20 s minimum per domain plus up to 30% jitter, one browser page per domain at a time, ETag/Last-Modified, honest User-Agent. A 200 page without a price that looks like a bot challenge counts as BLOCKED (never out of stock); 3 blocks in a row pause the domain for 6 hours and send one alert. A failed fetch never writes a price
 - Landed price with provincial sales tax (all provinces and territories) and shipping
-- 30/60/90-day and all-time lows, real discount against your observed 30-day median, fake-sale flag
-- Status badges: BUY NOW, GOOD, WAIT, FAKE SALE
-- Alerts through Apprise (ntfy by default): target hit, % drop, new all-time low, back in stock, source failing 24 h; de-duplicated per price level; quiet hours
+- Seasonal, 30/60/90-day and all-time lows (landed), real discount against the 60-day median, fake-sale flag (stated sale but more than 2% above the seasonal low, or a price raised before the sale)
+- Status badges: BUY NOW, BUY + PROTECT, WAIT, FAKE SALE
+- Alerts: instant pushes only for BUY / BUY + PROTECT, back in stock and blocked domains (ntfy gets Bought, Snooze 24h and Raise target buttons); everything else goes to the daily digest at 07:30 (plus 19:30 in Black Friday mode); quiet hours; snooze per item
 - Price history chart per retailer, price-match flag per retailer
 - System page with per-domain success rates, backoff state and recent fetches
-- `/healthz`, Prometheus `/metrics`, structured JSON logs
+- `/healthz` (database writable, data freshness, changedetection.io reachability), Prometheus `/metrics`, structured JSON logs, nightly `VACUUM INTO` backup at 03:30
 - Single admin password, or `none` behind reverse proxy authentication
 - Mobile-first UI, installable as a home-screen app
 
 ## Requirements
 - Docker with the compose plugin (TrueNAS SCALE apps host)
-- About 1.5 GB disk for the two images; 1 GB RAM for the browser sidecar
+- About 1.5 GB disk for the two images; 512 MB RAM for the app and up to 2 GB for the browser sidecar
 - Optional: `cosign` to verify release images; an ntfy topic (or any Apprise target) for alerts
 
 ## Setup
@@ -88,11 +95,17 @@ notification URLs are also editable on the Settings page.
 | `PRICEWATCH_COOKIE_SECURE` | `false` | `true` behind HTTPS |
 | `PRICEWATCH_SECRET_KEY` | generated file | Session signing key |
 | `PRICEWATCH_CONTACT` | `self-hosted` | Appended to the User-Agent |
-| `PRICEWATCH_MIN_DOMAIN_INTERVAL` | `5` | Seconds between requests to one domain |
-| `PRICEWATCH_DOMAIN_JITTER` | `3` | Extra random seconds |
+| `PRICEWATCH_MIN_DOMAIN_INTERVAL` | `20` | Seconds between requests to one domain |
+| `PRICEWATCH_DOMAIN_JITTER` | `0.3` | Extra random spacing (fraction of the interval) |
 | `PRICEWATCH_MAX_CONCURRENCY` | `4` | Parallel checks across domains |
 | `PRICEWATCH_DEFAULT_INTERVAL_MINUTES` | `360` | Normal check interval |
-| `PRICEWATCH_HOT_INTERVAL_MINUTES` | `60` | Interval for hot items |
+| `PRICEWATCH_HOT_INTERVAL_MINUTES` | `120` | Interval for hot items |
+| `PRICEWATCH_BLACKFRIDAY_INTERVAL_MINUTES` | `30` | Interval for the top hot items in Black Friday mode |
+| `PRICEWATCH_BLACKFRIDAY_MAX_ITEMS` | `25` | How many hot items get the Black Friday interval |
+| `PRICEWATCH_BREAKER_BLOCKS` / `_HOURS` | `3` / `6` | Circuit breaker for blocking domains |
+| `PRICEWATCH_PUBLIC_URL` | empty | Address your phone uses; enables ntfy action buttons |
+| `KEEPA_API_KEY` | empty | Amazon.ca prices and history via Keepa |
+| `CHANGEDETECTION_URL` / `CHANGEDETECTION_API_KEY` | empty | changedetection.io bridge |
 | `PRICEWATCH_BROWSER_ENABLED` | `true` | Use the Playwright sidecar |
 | `PRICEWATCH_BROWSER_TIMEOUT` | `30` | Per-page hard timeout (seconds) |
 | `PRICEWATCH_NOTIFY_URLS` | empty | Extra Apprise URLs, comma separated |
@@ -114,7 +127,8 @@ Shopping results that only link to Google (no merchant URL) are listed but not a
                                               │──ws──> pricewatch-browser :3000 (Playwright Chromium)
                                               └──> /data/pricewatch.db (SQLite WAL)
 ```
-Design note: `docs/design.md`. Backlog: `BACKLOG.md`.
+Design note: `docs/design.md`. Operations on TrueNAS (datasets, snapshots, access): `docs/operations.md`.
+Backlog: `BACKLOG.md`.
 
 ## Adapter authoring
 Most Canadian retailers publish schema.org JSON-LD, which the generic adapter reads. When a
@@ -141,7 +155,9 @@ scripts/smoke.sh --browser                  # full stack: add item, alert, brows
 | Symptom | Fix |
 |---|---|
 | `no_price` on a retailer | Open the System page error; try fetch mode `browser`, or add CSS selectors |
-| `blocked` / backoff on a domain | The site returned 403/429. PriceWatch waits (15 min doubling to 24 h). Clear on the System page only if you changed something |
+| `blocked` / paused domain | The site returned 403/429/503 or a bot challenge. After 3 in a row the domain pauses for 6 hours (Retry-After is honoured). Log prices by hand meanwhile, or hand the source to changedetection.io. PriceWatch does not try to evade bot protection |
+| `needs_keepa` | Amazon.ca needs `KEEPA_API_KEY`; meanwhile log Amazon prices by hand and use Amazon's Price History panel |
+| `excluded` (marketplace) | A third-party seller or non-new listing was recorded but is not compared; change the item's matching rules to include it |
 | `robots` | The site's robots.txt disallows the page. Untick "respect" only for pages you are comfortable fetching |
 | `currency` | The page priced in another currency (US store); use the `.ca` URL |
 | `excluded` | The page says the listing is refurbished or used and the item excludes that; change the item's matching rules if you want it |

@@ -1,0 +1,166 @@
+"""Quick-add (import, share), notification actions, API token, policies, changedetection.io, digest."""
+
+import re
+import secrets
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..db import get_db
+from ..models import Item, PricePolicy, SourceLink
+from ..services import alerts, changedetection, settings_store
+from ..timeutil import utcnow
+from .items import _load_item, create_item_from_url
+
+router = APIRouter(prefix="/api", tags=["extra"])
+URL_RE = re.compile(r"https?://\S+")
+
+
+class ImportIn(BaseModel):
+    text: str = Field(max_length=100_000)
+    hot: bool = False
+
+
+@router.post("/import")
+async def import_list(body: ImportIn, db: Session = Depends(get_db)):
+    """One URL or product name per line. URLs are tracked and filled in by their first check; names become items."""
+    created, skipped = [], []
+    for raw in body.text.splitlines():
+        line = raw.strip().strip(",;")
+        if not line or line.startswith("#"):
+            continue
+        m = URL_RE.search(line)
+        try:
+            if m:
+                item = await create_item_from_url(db, m.group(0), hot=body.hot, fetch_now=False)
+            else:
+                item = Item(name=line[:300], hot=body.hot)
+                db.add(item)
+                db.commit()
+            created.append({"id": item.id, "line": line[:200]})
+        except HTTPException as exc:
+            db.rollback()
+            skipped.append({"line": line[:200], "reason": exc.detail})
+    return {"created": created, "skipped": skipped}
+
+
+class SnoozeIn(BaseModel):
+    hours: int = Field(default=24, ge=1, le=24 * 30)
+
+
+@router.post("/items/{item_id}/snooze")
+def snooze(item_id: int, body: SnoozeIn | None = None, db: Session = Depends(get_db)):
+    item = _load_item(db, item_id)
+    item.snoozed_until = utcnow() + timedelta(hours=(body or SnoozeIn()).hours)
+    db.commit()
+    return {"snoozed_until": item.snoozed_until.isoformat() + "Z"}
+
+
+@router.delete("/items/{item_id}/snooze")
+def unsnooze(item_id: int, db: Session = Depends(get_db)):
+    item = _load_item(db, item_id)
+    item.snoozed_until = None
+    db.commit()
+    return {"snoozed_until": None}
+
+
+@router.api_route("/actions/{token}", methods=["GET", "POST"], response_class=HTMLResponse)
+def action(token: str, db: Session = Depends(get_db)):
+    """Signed one-tap actions from notifications (no login needed; links expire after 7 days)."""
+    parsed = alerts.read_action_token(token)
+    if not parsed:
+        raise HTTPException(403, "This link has expired or is invalid")
+    item_id, act = parsed
+    item = db.get(Item, item_id)
+    if item is None:
+        raise HTTPException(404, "Item not found")
+    if act == "snooze":
+        item.snoozed_until = utcnow() + timedelta(hours=24)
+        db.commit()
+        return HTMLResponse(f"<p>Snoozed alerts for {item.name} for 24 hours.</p>")
+    raise HTTPException(400, "Unknown action")
+
+
+@router.get("/token")
+def get_token(db: Session = Depends(get_db)):
+    return {"token": settings_store.get(db, "api_token")}
+
+
+@router.post("/token")
+def rotate_token(db: Session = Depends(get_db)):
+    token = secrets.token_urlsafe(32)
+    settings_store.update(db, {"api_token": token})
+    return {"token": token}
+
+
+class PolicyUpdate(BaseModel):
+    competitor_match: bool | None = None
+    own_price_adjustment: bool | None = None
+    window_days: int | None = Field(default=None, ge=0, le=365)
+    member_window_days: int | None = Field(default=None, ge=0, le=365)
+    electronics_window_days: int | None = Field(default=None, ge=0, le=365)
+    excluded_events: list[str] | None = None
+    excludes_marketplace: bool | None = None
+    event_guarantee: str | None = None
+    verified: bool | None = None
+    enabled: bool | None = None
+    notes: str | None = None
+
+
+def _policy_dict(p: PricePolicy) -> dict:
+    return {k: getattr(p, k) for k in ("id", "domain", "competitor_match", "own_price_adjustment", "window_days",
+                                       "member_window_days", "electronics_window_days", "excluded_events",
+                                       "excludes_marketplace", "excludes_open_box", "event_guarantee", "verified",
+                                       "enabled", "notes", "source_url")}
+
+
+@router.get("/policies")
+def list_policies(db: Session = Depends(get_db)):
+    return [_policy_dict(p) for p in db.scalars(select(PricePolicy).order_by(PricePolicy.domain)).all()]
+
+
+@router.patch("/policies/{policy_id}")
+def update_policy(policy_id: int, body: PolicyUpdate, db: Session = Depends(get_db)):
+    p = db.get(PricePolicy, policy_id)
+    if p is None:
+        raise HTTPException(404, "Policy not found")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(p, k, v)
+    db.commit()
+    return _policy_dict(p)
+
+
+@router.post("/sources/{source_id}/changedetection")
+def use_changedetection(source_id: int, db: Session = Depends(get_db)):
+    """Hand this source to changedetection.io: create (or link) a restock watch; PriceWatch stops fetching it."""
+    if not changedetection.configured():
+        raise HTTPException(409, "Set CHANGEDETECTION_URL and CHANGEDETECTION_API_KEY in .env first")
+    src = db.get(SourceLink, source_id)
+    if src is None:
+        raise HTTPException(404, "Source not found")
+    try:
+        src.external_id = changedetection.create_watch(src)
+    except changedetection.ChangeDetectionError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    src.fetch_mode = "changedetection"
+    src.next_check_at = None
+    db.commit()
+    return {"source_id": src.id, "watch": src.external_id}
+
+
+@router.post("/changedetection/sync")
+def sync_changedetection(db: Session = Depends(get_db)):
+    if not changedetection.configured():
+        raise HTTPException(409, "changedetection.io is not configured")
+    return changedetection.sync(db)
+
+
+@router.get("/digest/preview")
+def digest_preview(db: Session = Depends(get_db)):
+    title, body = alerts.build_digest(db)
+    db.rollback()  # preview only: leave pending digest alerts untouched
+    return {"title": title, "body": body}
