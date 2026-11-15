@@ -48,6 +48,8 @@ class Item(Base):
     exclude_variants: Mapped[bool] = mapped_column(Boolean, default=True)
     amazon_history_note: Mapped[str | None] = mapped_column(Text)
     search_query: Mapped[str | None] = mapped_column(String(300))
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime)
+    autofill: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -74,7 +76,31 @@ class Retailer(Base):
     tax_notes: Mapped[str | None] = mapped_column(Text)
     backoff_until: Mapped[datetime | None] = mapped_column(DateTime)
     backoff_seconds: Mapped[int] = mapped_column(Integer, default=0)
+    consecutive_blocks: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class PricePolicy(Base):
+    """Price match and price protection terms per retailer. Data, not code: editable in the UI."""
+
+    __tablename__ = "price_policies"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    domain: Mapped[str] = mapped_column(String(200), unique=True)
+    competitor_match: Mapped[bool] = mapped_column(Boolean, default=False)
+    own_price_adjustment: Mapped[bool] = mapped_column(Boolean, default=False)
+    window_days: Mapped[int | None] = mapped_column(Integer)
+    member_window_days: Mapped[int | None] = mapped_column(Integer)
+    electronics_window_days: Mapped[int | None] = mapped_column(Integer)
+    excluded_events: Mapped[list | None] = mapped_column(JSON)
+    excludes_marketplace: Mapped[bool] = mapped_column(Boolean, default=True)
+    excludes_open_box: Mapped[bool] = mapped_column(Boolean, default=True)
+    event_guarantee: Mapped[str | None] = mapped_column(Text)
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    notes: Mapped[str | None] = mapped_column(Text)
+    source_url: Mapped[str | None] = mapped_column(String(500))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class SourceLink(Base):
@@ -92,6 +118,10 @@ class SourceLink(Base):
     match_reasons: Mapped[dict | None] = mapped_column(JSON)
     discovered_via: Mapped[str | None] = mapped_column(String(30))
     fetch_mode: Mapped[str | None] = mapped_column(String(20))  # overrides retailer when set
+    channel: Mapped[str] = mapped_column(String(40), default="online")  # online|warehouse|store:<id>|province:<code>
+    external_id: Mapped[str | None] = mapped_column(String(100))  # ASIN for Keepa, watch UUID for changedetection.io
+    last_condition: Mapped[str | None] = mapped_column(String(20))
+    last_seller_type: Mapped[str | None] = mapped_column(String(120))
     etag: Mapped[str | None] = mapped_column(String(300))
     last_modified: Mapped[str | None] = mapped_column(String(100))
     last_price_cents: Mapped[int | None] = mapped_column(Integer)
@@ -127,7 +157,12 @@ class Observation(Base):
     in_stock: Mapped[bool | None] = mapped_column(Boolean)
     seller: Mapped[str | None] = mapped_column(String(200))
     payload_hash: Mapped[str | None] = mapped_column(String(64))
-    method: Mapped[str] = mapped_column(String(20), default="http")  # http|browser|manual|not_modified
+    method: Mapped[str] = mapped_column(String(20), default="http")  # http|browser|manual|not_modified|keepa|changedetection
+    channel: Mapped[str] = mapped_column(String(40), default="online")
+    seller_type: Mapped[str] = mapped_column(String(120), default="first_party")  # first_party | marketplace:<name>
+    condition: Mapped[str] = mapped_column(String(20), default="new")  # new|open_box|refurbished|used
+    coupon_cents: Mapped[int | None] = mapped_column(Integer)
+    parse_confidence: Mapped[float | None] = mapped_column(Float)
 
 
 class FetchRun(Base):
