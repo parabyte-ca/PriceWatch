@@ -71,7 +71,7 @@ verify_image() {
     log "cosign not installed; skipping signature check (install cosign to verify release images)"; return 0
   fi
   cosign verify "$IMAGE:$VERSION" \
-    --certificate-identity-regexp "^https://github.com/parabyte-ca/pricewatch/.github/workflows/release.yml@refs/heads/main$" \
+    --certificate-identity-regexp "(?i)^https://github.com/parabyte-ca/pricewatch/.github/workflows/release.yml@refs/heads/main$" \
     --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
 }
 

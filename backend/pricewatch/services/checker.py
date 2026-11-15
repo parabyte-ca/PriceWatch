@@ -54,6 +54,15 @@ def _apply_backoff(retailer: Retailer | None, retry_after: int | None) -> int:
     return seconds
 
 
+def _excluded_condition(item: Item, parsed: ParsedProduct | None) -> str | None:
+    cond = (parsed.condition or "").lower() if parsed else ""
+    if cond == "refurbished" and item.exclude_refurbished:
+        return cond
+    if cond == "used" and item.exclude_used:
+        return cond
+    return None
+
+
 def _currency_ok(parsed: ParsedProduct) -> bool:
     return parsed.currency in (None, "", "CAD")
 
@@ -168,8 +177,11 @@ async def check_source(source_id: int) -> str:
 
         status = result.outcome
         error = result.error
+        excluded = _excluded_condition(src.item, parsed)
         if result.outcome == "ok":
-            if parsed and parsed.has_price and _currency_ok(parsed):
+            if parsed and parsed.has_price and excluded:
+                status, error = "excluded", f"Listing condition is {excluded}; this item excludes it"
+            elif parsed and parsed.has_price and _currency_ok(parsed):
                 status = "ok"
             elif parsed and parsed.has_price:
                 status, error = "currency", f"Price is in {parsed.currency}, not CAD"

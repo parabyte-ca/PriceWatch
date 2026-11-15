@@ -13,6 +13,7 @@ from ..db import get_db
 from ..fetch.http import domain_of
 from ..models import Item, Observation, SourceLink
 from ..schemas import (
+    DiscoverIn,
     FromUrlIn,
     ItemCreate,
     ItemOut,
@@ -23,8 +24,11 @@ from ..schemas import (
     SourceUpdate,
     UrlIn,
 )
+from ..serp import available_providers
 from ..services import alerts, settings_store
 from ..services.checker import check_source, fetch_and_parse, record_observation, run_alerts, schedule_next
+from ..services.discovery import DiscoveryError, discover, month_usage
+from ..services.matching import normalize_url
 from ..services.retailers import get_or_create_retailer
 from ..services.summary import _source_landed, summarize_items
 from ..timeutil import utcnow
@@ -130,6 +134,7 @@ async def preview(body: UrlIn, db: Session = Depends(get_db)):
 
 def _add_source(db: Session, item: Item, url: str, fetch_mode: str | None = None,
                 status_: str = "confirmed", method: str = "manual") -> SourceLink:
+    url = normalize_url(url)
     retailer = get_or_create_retailer(db, url)
     src = SourceLink(item_id=item.id, retailer_id=retailer.id, url=url, status=status_, fetch_mode=fetch_mode,
                      match_method=method, match_confidence=1.0 if method == "manual" else None)
@@ -145,7 +150,7 @@ def _add_source(db: Session, item: Item, url: str, fetch_mode: str | None = None
 
 @router.post("/items/from-url", response_model=ItemOut, status_code=201)
 async def create_from_url(body: FromUrlIn, db: Session = Depends(get_db)):
-    url = str(body.url)
+    url = normalize_url(str(body.url))
     retailer = get_or_create_retailer(db, url)
     db.commit()
     result, parsed, method = await fetch_and_parse(url, retailer, retailer.fetch_mode, use_cache=True)
@@ -182,6 +187,23 @@ async def create_from_url(body: FromUrlIn, db: Session = Depends(get_db)):
         db.commit()
     item = _load_item(db, item.id)
     return item_out(db, item, summarize_items(db, [item])[item.id], with_sources=True)
+
+
+@router.get("/discovery/providers")
+def discovery_providers(db: Session = Depends(get_db)):
+    limit = int(settings_store.get(db, "serp_monthly_limit") or 0)
+    return {"providers": [{"name": name, "used_this_month": month_usage(db, name), "limit": limit}
+                          for name in available_providers()]}
+
+
+@router.post("/items/{item_id}/discover")
+async def discover_item(item_id: int, body: DiscoverIn | None = None, db: Session = Depends(get_db)):
+    item = _load_item(db, item_id)
+    body = body or DiscoverIn()
+    try:
+        return await discover(db, item, provider_name=body.provider, force=body.force)
+    except DiscoveryError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 @router.post("/items/{item_id}/sources", response_model=SourceOut, status_code=201)

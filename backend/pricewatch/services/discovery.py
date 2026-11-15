@@ -1,0 +1,148 @@
+"""Candidate discovery through a SERP provider, matched against the item and stored as suggestions."""
+
+import logging
+from datetime import timedelta
+from urllib.parse import urlsplit
+
+import httpx
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from ..models import Item, SerpSearch, SourceLink
+from ..serp import ProviderError, SerpProvider, get_provider
+from ..timeutil import utcnow
+from . import settings_store
+from .matching import Candidate, ItemSpec, match, normalize_url
+from .retailers import get_or_create_retailer
+
+log = logging.getLogger(__name__)
+
+CACHE_DAYS = 7
+GOOGLE_HOSTS = ("google.", "googleadservices.", "doubleclick.")
+
+
+class DiscoveryError(Exception):
+    pass
+
+
+def build_query(item: Item) -> str:
+    if item.search_query:
+        return item.search_query.strip()
+    parts = [item.brand or "", item.name]
+    if item.model and item.model.lower() not in item.name.lower():
+        parts.append(item.model)
+    words: list[str] = []
+    for part in parts:
+        for w in part.split():
+            if w.lower() not in {x.lower() for x in words}:
+                words.append(w)
+    return " ".join(words)[:300]
+
+
+def month_usage(db: Session, provider: str) -> int:
+    now = utcnow()
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return db.scalar(select(func.count(SerpSearch.id)).where(
+        SerpSearch.provider == provider, SerpSearch.billable.is_(True), SerpSearch.status == "ok",
+        SerpSearch.created_at >= start)) or 0
+
+
+def _is_merchant_url(url: str) -> bool:
+    host = (urlsplit(url).hostname or "").lower()
+    return bool(host) and not any(g in host for g in GOOGLE_HOSTS)
+
+
+def _candidate_dict(c: Candidate) -> dict:
+    return {"title": c.title, "url": c.url, "price_cents": c.price_cents, "merchant": c.merchant,
+            "condition": c.condition, "shipping_cents": c.shipping_cents, "gtin": c.gtin, "mpn": c.mpn,
+            "brand": c.brand, "provider": c.provider, "extra": c.extra}
+
+
+async def run_search(db: Session, item: Item, provider: SerpProvider, query: str, force: bool,
+                     client: httpx.AsyncClient | None) -> tuple[list[Candidate], bool]:
+    """Return (candidates, cached). Uses a 7-day cache and enforces the monthly limit."""
+    if not force:
+        cached = db.scalar(
+            select(SerpSearch).where(SerpSearch.provider == provider.name, SerpSearch.query == query,
+                                     SerpSearch.status == "ok",
+                                     SerpSearch.created_at >= utcnow() - timedelta(days=CACHE_DAYS))
+            .order_by(SerpSearch.created_at.desc()).limit(1))
+        if cached and cached.results is not None:
+            return [Candidate(**r) for r in cached.results], True
+    limit = int(settings_store.get(db, "serp_monthly_limit") or 0)
+    used = month_usage(db, provider.name)
+    if limit and used >= limit:
+        raise DiscoveryError(f"Monthly search limit reached for {provider.name} ({used}/{limit}); raise it in Settings")
+    own_client = client is None
+    client = client or httpx.AsyncClient()
+    record = SerpSearch(provider=provider.name, query=query, item_id=item.id)
+    try:
+        candidates = await provider.search(query, client)
+        record.result_count = len(candidates)
+        record.results = [_candidate_dict(c) for c in candidates]
+    except ProviderError as exc:
+        record.status, record.error = "error", str(exc)
+        db.add(record)
+        db.commit()
+        raise DiscoveryError(str(exc)) from exc
+    finally:
+        if own_client:
+            await client.aclose()
+    db.add(record)
+    db.commit()
+    return candidates, False
+
+
+async def discover(db: Session, item: Item, *, provider_name: str | None = None, force: bool = False,
+                   client: httpx.AsyncClient | None = None) -> dict:
+    provider = get_provider(provider_name)
+    if provider is None:
+        raise DiscoveryError("No search provider configured. Set SERPAPI_KEY or BRIGHTDATA_API_KEY in .env")
+    cfg = settings_store.get_all(db)
+    query = build_query(item)
+    candidates, cached = await run_search(db, item, provider, query, force, client)
+
+    spec = ItemSpec.from_item(item)
+    existing = {normalize_url(s.url): s for s in item.sources}
+    threshold = float(cfg["match_threshold"])
+    out, seen = [], set()
+    added = 0
+    for cand in candidates:
+        url = normalize_url(cand.url)
+        if url in seen:
+            continue
+        seen.add(url)
+        result = match(spec, cand, threshold)
+        row = {"title": cand.title, "url": url, "merchant": cand.merchant, "price_cents": cand.price_cents,
+               "confidence": result.confidence, "method": result.method, "accepted": result.accepted,
+               "reasons": result.reasons, "exclusions": result.exclusions}
+        if not _is_merchant_url(url):
+            row["status"] = "no merchant link"
+        elif url in existing:
+            row["status"] = f"already {existing[url].status}"
+        elif not result.accepted:
+            row["status"] = "excluded" if result.exclusions else "low match"
+        else:
+            retailer = get_or_create_retailer(db, url)
+            auto = cfg["auto_confirm_gtin"] and result.method == "gtin"
+            src = SourceLink(
+                item_id=item.id, retailer_id=retailer.id, url=url, title=cand.title[:500],
+                status="confirmed" if auto else "suggested", match_confidence=result.confidence,
+                match_method=result.method, discovered_via=provider.name,
+                match_reasons={"reasons": result.reasons, "exclusions": result.exclusions,
+                               "serp_price_cents": cand.price_cents, "merchant": cand.merchant,
+                               "query": query},
+            )
+            db.add(src)
+            db.flush()
+            existing[url] = src
+            added += 1
+            row["status"] = "confirmed" if auto else "suggested"
+        out.append(row)
+    db.commit()
+    out.sort(key=lambda r: (not r["accepted"], -r["confidence"]))
+    log.info("discovery", extra={"item_id": item.id, "provider": provider.name, "cached": cached,
+                                 "candidates": len(out), "added": added})
+    return {"provider": provider.name, "query": query, "cached": cached, "added": added,
+            "usage": month_usage(db, provider.name), "limit": int(cfg["serp_monthly_limit"] or 0),
+            "candidates": out}

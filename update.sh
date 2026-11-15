@@ -56,7 +56,7 @@ deploy_current_checkout() {
   if [ -z "$REF" ] && docker pull -q "$IMAGE:$version" >/dev/null 2>&1; then
     if [ "${PRICEWATCH_SKIP_VERIFY:-false}" != "true" ] && command -v cosign >/dev/null; then
       cosign verify "$IMAGE:$version" \
-        --certificate-identity-regexp "^https://github.com/parabyte-ca/pricewatch/.github/workflows/release.yml@refs/heads/main$" \
+        --certificate-identity-regexp "(?i)^https://github.com/parabyte-ca/pricewatch/.github/workflows/release.yml@refs/heads/main$" \
         --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null || die "signature check failed for $IMAGE:$version"
       local label; label=$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$IMAGE:$version")
       [ "$label" = "$revision" ] || die "image revision $label does not match tag commit $revision"

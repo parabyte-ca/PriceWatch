@@ -47,6 +47,7 @@ class Item(Base):
     exclude_bundles: Mapped[bool] = mapped_column(Boolean, default=True)
     exclude_variants: Mapped[bool] = mapped_column(Boolean, default=True)
     amazon_history_note: Mapped[str | None] = mapped_column(Text)
+    search_query: Mapped[str | None] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -88,6 +89,8 @@ class SourceLink(Base):
     status: Mapped[str] = mapped_column(String(20), default="confirmed")  # suggested|confirmed|rejected
     match_confidence: Mapped[float | None] = mapped_column(Float)
     match_method: Mapped[str | None] = mapped_column(String(30))
+    match_reasons: Mapped[dict | None] = mapped_column(JSON)
+    discovered_via: Mapped[str | None] = mapped_column(String(30))
     fetch_mode: Mapped[str | None] = mapped_column(String(20))  # overrides retailer when set
     etag: Mapped[str | None] = mapped_column(String(300))
     last_modified: Mapped[str | None] = mapped_column(String(100))
@@ -174,6 +177,21 @@ class SettingKV(Base):
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSON)
+
+
+class SerpSearch(Base):
+    __tablename__ = "serp_searches"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    provider: Mapped[str] = mapped_column(String(30), index=True)
+    query: Mapped[str] = mapped_column(String(300), index=True)
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    billable: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[str] = mapped_column(String(20), default="ok")
+    result_count: Mapped[int] = mapped_column(Integer, default=0)
+    results: Mapped[list | None] = mapped_column(JSON)
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 class DealFeedEntry(Base):

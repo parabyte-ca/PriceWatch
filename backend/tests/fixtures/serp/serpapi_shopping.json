@@ -1,0 +1,11 @@
+{
+  "search_metadata": {"status": "Success"},
+  "shopping_results": [
+    {"position": 1, "title": "Sony WH-1000XM6 Wireless Noise Cancelling Headphones - Black", "link": "https://www.bestbuy.ca/en-ca/product/sony-wh-1000xm6/18930123?utm_source=google&srsltid=abc", "source": "Best Buy Canada", "price": "$449.99", "extracted_price": 449.99, "delivery": "Free delivery"},
+    {"position": 2, "title": "Sony WH1000XM6/B Over-Ear Headphones", "link": "https://www.staples.ca/products/2988123-en-sony-wh1000xm6", "source": "Staples", "price": "$429.99", "extracted_price": 429.99, "delivery": "$9.99 delivery"},
+    {"position": 3, "title": "Sony WH-1000XM6 Headphones Black (Refurbished)", "link": "https://www.ebay.ca/itm/123", "source": "eBay - techdeals", "price": "$299.00", "extracted_price": 299.0, "second_hand_condition": "refurbished"},
+    {"position": 4, "title": "Sony WH-1000XM5 Wireless Headphones", "link": "https://www.walmart.ca/en/ip/sony-xm5/1", "source": "Walmart.ca", "price": "$348.00", "extracted_price": 348.0},
+    {"position": 5, "title": "Sony WH-1000XM6 Headphones Black", "product_link": "https://www.google.ca/shopping/product/111", "source": "Some Store", "price": "$440.00", "extracted_price": 440.0},
+    {"position": 6, "title": "Hard Case for Sony WH-1000XM6 Headphones", "link": "https://www.amazon.ca/dp/B0CASE1234", "source": "Amazon.ca", "price": "$19.99", "extracted_price": 19.99}
+  ]
+}

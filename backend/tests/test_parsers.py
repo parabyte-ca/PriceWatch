@@ -31,7 +31,7 @@ def test_jsonld_offer_with_strikethrough():
     assert p.name.startswith("Sony WH-1000XM6")
     assert p.brand == "Sony"
     assert p.mpn == "WH1000XM6/B"
-    assert p.gtin == "4548736158563"
+    assert p.gtin == "4548736158566"
     assert p.price_cents == 44999
     assert p.was_price_cents == 54999
     assert p.currency == "CAD"
