@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.4.0-blue)
+![Version](https://img.shields.io/badge/version-0.5.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,8 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- Price protection: record a purchase ("Bought") and PriceWatch keeps checking that store through the protection window (Costco 30 days; Best Buy's Black Friday Price Guarantee on badged items; or the days you enter). A claimable drop sends an instant alert and saves a proof package (page snapshot, SHA-256, UTC and local timestamps, parsed price) you can download as a zip
+- RedFlagDeals Hot Deals feed every 15 minutes: threads are matched to everyone's items by model number or title, linked to stores you already track, duplicate threads collapse into one alert, and a tracked store is re-checked right away. Threads are hints, never prices
 - Household accounts: each person has their own login, lists, alert rules, notification URLs, quiet hours, province, snoozes and daily digest; prices are fetched once for everyone
 - Shared lists: the owner creates a single-use friend code (expires in 7 days, can edit or view only); the other person enters it on the Lists page. Leaving or removing someone never deletes price history
 - Wishlist with target and maximum prices, priority, hot items (every 2 hours; every 30 minutes for the top 25 in Black Friday mode), notes
@@ -174,6 +176,7 @@ scripts/smoke.sh --browser                  # full stack: add item, alert, brows
 | Discovery adds nothing | Expand the results list on the item page to see why each listing was skipped; set a custom search query on the item |
 | Test alert says `logged` | No notification URL configured |
 | Browser checks fail | `sudo docker logs pricewatch-browser`; screenshots of failed renders are in `data/screenshots/` |
+| A purchase never shows a drop | Protection only follows first-party, new-condition prices from the same store and channel (Costco online and warehouse are separate). Manual-only sources need prices logged by hand |
 | Forgot a password | The admin resets it under Settings, People. Admin locked out: `sudo docker exec -it pricewatch python -m pricewatch.reset_password admin` |
 | Logs | `sudo docker logs --tail 100 pricewatch` |
 

@@ -4,6 +4,7 @@ import { api } from "./api";
 import AddItem from "./pages/AddItem";
 import Board from "./pages/Board";
 import Lists from "./pages/Lists";
+import Purchases from "./pages/Purchases";
 import { CurrentUser, ListInfo, SessionContext } from "./session";
 import ItemDetail from "./pages/ItemDetail";
 import Login from "./pages/Login";
@@ -23,6 +24,7 @@ const nav = [
   ["/board", "Board"],
   ["/add", "Add"],
   ["/lists", "Lists"],
+  ["/purchases", "Bought"],
   ["/settings", "Settings"],
   ["/system", "System"],
 ];
@@ -88,6 +90,7 @@ export default function App() {
         <Route path="/share" element={<AddItem />} />
         <Route path="/board" element={<Board />} />
         <Route path="/lists" element={<Lists />} />
+        <Route path="/purchases" element={<Purchases />} />
         <Route path="/items/:id" element={<ItemDetail />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/system" element={<SystemPage />} />

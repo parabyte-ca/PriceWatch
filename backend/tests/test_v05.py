@@ -70,6 +70,11 @@ def test_costco_purchase_protected_and_drop_claimable(client, pages, sent, nov16
     p = client.get("/api/purchases").json()[0]
     assert p["status"] == "claimable" and p["claimable_cents"] == 5000 and p["proof_count"] == 1
 
+    from pricewatch.db import session_scope as _ss
+    _db = _ss()
+    assert "Claim $50.00 at Costco" in alerts.build_digest(_db)[1]
+    _db.close()
+
     # same price again: no duplicate alert
     client.post(f"/api/sources/{src['id']}/check")
     assert len([a for a in sent if a.rule_type == "protection"]) == 1

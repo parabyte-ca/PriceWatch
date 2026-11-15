@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0] - 2026-11-15
+### Added
+- Purchases ("Bought" on an item, Bought page): protection terms from the retailer policy (Costco 30 days, Best Buy Black Friday Price Guarantee when badged) or your own number of days; protected stores keep being checked even after the item stops alerting
+- Claimable drop alerts (instant) with a proof package: page HTML, SHA-256, UTC and local timestamps, parsed price and seller, downloadable as a zip
+- RedFlagDeals Hot Deals feed matching (every 15 minutes, robots-respecting, XML parsed without entity expansion): links threads to items and already-tracked stores, collapses duplicate threads, triggers a confirming check
+- Model-number matching: a shared model number (same brand, not an accessory) is a strong match for discovery and the deal feed
+- Digest lists claimable drops and protection windows ending within 3 days
+
 ## [0.4.0] - 2026-11-15
 ### Added
 - Household accounts: per-person login (scrypt), lists, settings (province, alerts, quiet hours, notification URLs, digest, My Best Buy membership), snoozes, alerts and digests

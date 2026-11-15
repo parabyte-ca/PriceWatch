@@ -36,6 +36,9 @@ interface SettingsData {
   my_best_buy_member: boolean;
   alert_domain_blocked: boolean;
   is_admin: boolean;
+  alert_deal_feed: boolean;
+  deal_feed_enabled: boolean;
+  min_claim_cents: number;
   provinces: Record<string, { name: string; rate: number }>;
   timezone: string;
 }
@@ -157,6 +160,12 @@ export default function SettingsPage() {
           </div>
         </div>
         <Toggle k="discover_on_add" label="Search automatically when adding an item by name" />
+        <Toggle k="deal_feed_enabled" label="Watch the RedFlagDeals Hot Deals feed (every 15 minutes)" />
+        <div>
+          <label className="label">Smallest price drop worth a protection claim ($)</label>
+          <input className="input w-28" type="number" step="0.5" value={(s.min_claim_cents || 0) / 100}
+            onChange={(e) => set("min_claim_cents", Math.round(Number(e.target.value) * 100))} />
+        </div>
         <Toggle k="auto_confirm_gtin" label="Auto-confirm listings whose GTIN/UPC matches exactly" />
         <p className="text-xs text-slate-500">
           Providers are enabled by SERPAPI_KEY or BRIGHTDATA_API_KEY in .env. Results are cached for 7 days per query.
@@ -179,6 +188,7 @@ export default function SettingsPage() {
         <div className="grid grid-cols-2 gap-2">
           <Toggle k="alert_target" label="BUY / BUY + PROTECT (instant)" />
           <Toggle k="alert_back_in_stock" label="Back in stock (instant)" />
+          <Toggle k="alert_deal_feed" label="RedFlagDeals thread for my items (instant; else digest)" />
           {s.is_admin && <Toggle k="alert_domain_blocked" label="Retailer blocking checks (instant)" />}
           <Toggle k="alert_all_time_low" label="New low (instant; else digest)" />
           <Toggle k="alert_source_failing" label="Source failing 24 h (instant; else digest)" />

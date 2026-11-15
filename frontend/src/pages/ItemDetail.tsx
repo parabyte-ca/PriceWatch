@@ -4,6 +4,7 @@ import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContai
 import { ago, api, EXCLUSIONS, Item, localTime, money, toCents, toDollars } from "../api";
 import Badge, { Confidence } from "../components/Badge";
 import { Suggestions } from "../components/Discovery";
+import { BoughtForm, DealThreads, PurchaseCard, PurchaseInfo } from "../components/Purchase";
 
 interface Series {
   source_id: number;
@@ -35,6 +36,12 @@ export default function ItemDetail() {
   const [form, setForm] = useState({ target: "", max: "", hot: false, priority: 3, notes: "", amazon: "", query: "" });
   const [rules, setRules] = useState<Record<string, boolean>>({});
   const [cdEnabled, setCdEnabled] = useState(false);
+  const [buying, setBuying] = useState(false);
+  const [purchases, setPurchases] = useState<PurchaseInfo[]>([]);
+  const loadPurchases = useCallback(() => {
+    api<PurchaseInfo[]>(`/api/purchases?item_id=${id}`).then(setPurchases).catch(() => {});
+  }, [id]);
+  useEffect(() => { loadPurchases(); }, [loadPurchases]);
   useEffect(() => {
     fetch("/healthz").then((r) => r.json()).then((h) => setCdEnabled(h.changedetection !== undefined)).catch(() => {});
   }, []);
@@ -119,15 +126,9 @@ export default function ItemDetail() {
             </div>
             <Badge value={s.badge} />
           </div>
-          {urlAction === "bought" && item.active && (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-green-100 p-2 text-sm text-green-900">
-              Bought it? Archiving stops checks and alerts for this item.
-              <button className="btn-primary px-2 py-1 text-xs" onClick={() => run(async () => {
-                await api(`/api/items/${id}`, { method: "PATCH", json: { active: false, notes: `${item.notes ? item.notes + "\n" : ""}Bought ${new Date().toLocaleDateString("en-CA")} at ${money(s.best_landed_cents)} landed (${s.best?.retailer || "unknown"}).` } });
-                setParams({});
-              }, "Archived as bought")}>Mark as bought</button>
-              <button className="btn-ghost px-2 py-1 text-xs" onClick={() => setParams({})}>Not yet</button>
-            </div>
+          {(urlAction === "bought" || buying) && (
+            <BoughtForm item={item} onCancel={() => { setBuying(false); setParams({}); }}
+              onDone={() => { setBuying(false); setParams({}); flash("Purchase saved; price protection is on"); load(); loadPurchases(); }} />
           )}
           <div className={`rounded-lg p-2 text-sm ${s.decision === "BUY" ? "bg-green-50 text-green-900" : s.decision === "BUY_AND_PROTECT" ? "bg-teal-50 text-teal-900" : "bg-slate-100 dark:bg-slate-800"}`}>
             <span className="font-semibold">{s.badge}:</span> {s.decision_reason}. <Confidence level={s.history_confidence} days={s.history_days} />
@@ -158,6 +159,7 @@ export default function ItemDetail() {
             <button className="btn-ghost" onClick={() => run(() => api(`/api/items/${id}/check`, { method: "POST" }), "Checks queued; refresh in a minute")}>
               Check all now
             </button>
+            <button className="btn-ghost" onClick={() => setBuying(true)}>Bought</button>
             {s.snoozed ? (
               <button className="btn-ghost" onClick={() => run(() => api(`/api/items/${id}/snooze`, { method: "DELETE" }), "Alerts back on")}>Unsnooze</button>
             ) : (
@@ -302,6 +304,12 @@ export default function ItemDetail() {
         </div>
       </div>
 
+      {purchases.length > 0 && (
+        <div className="space-y-2">
+          {purchases.map((p) => <PurchaseCard key={p.id} p={p} onChange={() => { loadPurchases(); load(); }} />)}
+        </div>
+      )}
+      <DealThreads itemId={item.id} />
       <Suggestions item={item} onChange={load} />
 
       <form className="card grid gap-3 md:grid-cols-3" onSubmit={saveEdits}>

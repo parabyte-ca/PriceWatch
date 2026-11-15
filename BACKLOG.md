@@ -19,11 +19,11 @@ Items not yet scheduled into a phase. Newest first.
 
 ## v0.4.0 (target Nov 22 to 25, from the 2026-11-15 delta review)
 
-1. Purchases and price-protection tracker: per purchase store retailer, price, date, channel; keep watching and
+1. DONE in v0.5.0. Purchases and price-protection tracker: per purchase store retailer, price, date, channel; keep watching and
    alert when a claimable drop occurs (Costco 30 days; Best Buy event guarantee on badged items; Staples 30/14 days
    excluding event pricing). Highest value; ship by Nov 22 so early buys are protected.
-2. Proof package: full-page screenshot, URL, UTC and local timestamps, parsed price, seller, page hash, zipped.
-3. RedFlagDeals Hot Deals feed (see below; the review asks for the feed matcher by Nov 20).
+2. DONE in v0.5.0 (HTML snapshot; screenshot not yet). Proof package: full-page screenshot, URL, UTC and local timestamps, parsed price, seller, page hash, zipped.
+3. DONE in v0.5.0 (feed matching and de-duplication). Comment aggregation (below) is still open.
 4. Gift lists per person and occasion with budget caps and spent vs remaining.
 5. Cash-back and gift card stacking notes per retailer (manual table; do not scrape Rakuten).
 6. Retailer JSON adapters (Best Buy province pricing, Canadian Tire / Sport Chek store pricing) once fixtures are

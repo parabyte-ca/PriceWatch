@@ -383,6 +383,21 @@ def build_digest(db: Session, user_id: int | None = None) -> tuple[str, str]:
         for item, s in opps[:5]:
             o = s["price_match"][0]
             lines.append(f"- {item.name}: ask {o['at']} to match {o['match_to']} at {money(o['price_cents'])}")
+    if user is not None:
+        from ..models import Purchase
+
+        open_p = db.scalars(select(Purchase).where(Purchase.user_id == user.id,
+                                                   Purchase.status.in_(["watching", "claimable"]))).all()
+        claim = [p for p in open_p if p.status == "claimable"]
+        ending = [p for p in open_p if p.protection_until and (p.protection_until - local.date()).days <= 3]
+        if claim or ending:
+            lines.append("Price protection:")
+            for p in claim:
+                lines.append(f"- Claim {money(p.price_cents - (p.lowest_seen_cents or p.price_cents))} at {p.retailer_name} "
+                             f"(window ends {p.protection_until:%b %d})")
+            for p in ending:
+                if p not in claim:
+                    lines.append(f"- {p.retailer_name} protection ends {p.protection_until:%b %d}; no drop so far")
     stale = [i for i in items if summaries[i.id]["stale"] and summaries[i.id]["source_count"]]
     if stale:
         lines.append(f"No successful check in 24 hours ({len(stale)}): " + ", ".join(i.name for i in stale[:8]))
