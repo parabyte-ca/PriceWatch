@@ -6,3 +6,7 @@ frontend/dist
 backend/tests
 data
 .env
+upgrade
+upgrade-status
+.state
+logs

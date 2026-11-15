@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.5.0-blue)
+![Version](https://img.shields.io/badge/version-0.6.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,7 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- In-app updates for admins (System page, Updates): pick a release, watch live progress, roll back. A root cron job on TrueNAS (the upgrade agent, installed with `midclt`) validates the request and runs `update.sh` (backup, signature check, health check, automatic rollback); the container can only drop a small JSON request
 - Price protection: record a purchase ("Bought") and PriceWatch keeps checking that store through the protection window (Costco 30 days; Best Buy's Black Friday Price Guarantee on badged items; or the days you enter). A claimable drop sends an instant alert and saves a proof package (page snapshot, SHA-256, UTC and local timestamps, parsed price) you can download as a zip
 - RedFlagDeals Hot Deals feed every 15 minutes: threads are matched to everyone's items by model number or title, linked to stores you already track, duplicate threads collapse into one alert, and a tracked store is re-checked right away. Threads are hints, never prices
 - Household accounts for any number of people: each person has their own login, lists, alert rules, notification URLs, quiet hours, province, snoozes and daily digest; prices are fetched once for everyone
@@ -80,6 +81,15 @@ change their password under Your account, and set their own notification URL. To
 then they enter the friend code under Join a shared list.
 
 ## Update
+**From the app (recommended):** System, Updates, choose the release, Update. Install the agent once:
+```bash
+cd /mnt/shared_vol/websites/pricewatch && sudo scripts/upgrade-agent.sh --install   # setup.sh does this on TrueNAS
+sudo scripts/upgrade-agent.sh --status                                             # agent, status and releases
+```
+Folders: `upgrade/` (request inbox the container writes), `upgrade-status/` (agent replies and the live log,
+read-only in the container), `.state/` (root-only, never mounted). Keep all three when moving the install.
+
+**By hand:**
 ```bash
 cd /mnt/shared_vol/websites/pricewatch
 sudo ./update.sh                    # latest release tag

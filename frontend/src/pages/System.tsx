@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { ago, api, localTime, money, toCents, toDollars } from "../api";
+import Updates from "../components/Updates";
+import { useSession } from "../session";
 
 interface Health { total: number; ok: number; success_rate: number | null; last: string | null; avg_ms: number }
 interface SystemData {
@@ -27,6 +29,7 @@ interface Policy { id: number; domain: string; competitor_match: boolean; own_pr
   event_guarantee: string | null }
 
 export default function SystemPage() {
+  const { user } = useSession();
   const [policies, setPolicies] = useState<Policy[]>([]);
   const loadPolicies = () => api<Policy[]>("/api/policies").then(setPolicies).catch(() => {});
   useEffect(() => { loadPolicies(); }, []);
@@ -55,6 +58,7 @@ export default function SystemPage() {
 
   return (
     <div className="space-y-4">
+      {user?.role === "admin" && <Updates />}
       <div className="card grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <div><div className="label">Version</div>{data.version}</div>
         <div><div className="label">Items / sources</div>{data.items} / {data.sources}</div>
