@@ -82,6 +82,10 @@ class SourceOut(BaseModel):
     match_reasons: dict | None = None
     discovered_via: str | None = None
     fetch_mode: str | None
+    channel: str = "online"
+    external_id: str | None = None
+    last_condition: str | None = None
+    last_seller_type: str | None = None
     retailer_id: int | None
     retailer_name: str | None = None
     price_match: bool = False
@@ -127,7 +131,8 @@ class SourceCreate(BaseModel):
 class SourceUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["suggested", "confirmed", "rejected"] | None = None
-    fetch_mode: Literal["auto", "http", "browser"] | None = None
+    fetch_mode: Literal["auto", "http", "browser", "keepa", "manual", "changedetection"] | None = None
+    channel: str | None = Field(default=None, pattern=r"^(online|warehouse|store:[\w-]{1,30}|province:[A-Z]{2})$")
 
 
 class DiscoverIn(BaseModel):
@@ -137,6 +142,9 @@ class DiscoverIn(BaseModel):
 
 class ManualPriceIn(BaseModel):
     store: str = Field(min_length=1, max_length=120)
+    channel: str = Field(default="online", pattern=r"^(online|warehouse|store:[\w-]{1,30}|province:[A-Z]{2})$")
+    condition: Literal["new", "open_box", "refurbished", "used"] = "new"
+    proof: str | None = Field(default=None, max_length=2000)
     price_cents: int = Field(ge=0)
     shipping_cents: int | None = Field(default=None, ge=0)
     was_price_cents: int | None = Field(default=None, ge=0)
@@ -165,8 +173,8 @@ class RetailerOut(BaseModel):
 class RetailerUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str | None = None
-    fetch_mode: Literal["auto", "http", "browser"] | None = None
-    min_interval_seconds: float | None = Field(default=None, ge=5)
+    fetch_mode: Literal["auto", "http", "browser", "keepa", "manual"] | None = None
+    min_interval_seconds: float | None = Field(default=None, ge=20)
     selectors: dict[str, str] | None = None
     respect_robots: bool | None = None
     free_shipping_threshold_cents: int | None = Field(default=None, ge=0)

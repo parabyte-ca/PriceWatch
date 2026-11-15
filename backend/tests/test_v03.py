@@ -74,6 +74,12 @@ def test_seller_type_and_condition_helpers():
     assert checker.seller_type_for("BestBuy.ca", bb) == "first_party"
     assert checker.seller_type_for(None, bb) == "first_party"
     assert checker.seller_type_for("Joe's Gadgets", bb) == "marketplace:Joe's Gadgets"
+    assert checker.seller_type_for("Best Buy Canada Ltd.", bb) == "first_party"
+    wm = Retailer(domain="walmart.ca", name="Walmart Canada")
+    assert checker.seller_type_for("Walmart Inc.", wm) == "first_party"
+    mx = Retailer(domain="memoryexpress.com", name="Memory Express")
+    assert checker.seller_type_for("MEMX Computer Products", mx) == "first_party"  # not a marketplace retailer
+    assert checker.seller_type_for("Sold by GadgetCo via Marketplace", mx).startswith("marketplace")
     assert checker.normal_condition("Open Box") == "open_box"
     assert checker.normal_condition(None) == "new"
 

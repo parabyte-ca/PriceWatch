@@ -314,7 +314,7 @@ def manual_price(item_id: int, body: ManualPriceIn, db: Session = Depends(get_db
     src = db.scalar(select(SourceLink).where(SourceLink.item_id == item.id, SourceLink.url == url))
     if src is None:
         src = SourceLink(item_id=item.id, url=url, title=body.store, status="confirmed", match_method="manual",
-                         match_confidence=1.0)
+                         match_confidence=1.0, channel=body.channel, fetch_mode="manual")
         if not url.startswith("manual://"):
             src.retailer_id = get_or_create_retailer(db, url).id
         db.add(src)
@@ -322,7 +322,10 @@ def manual_price(item_id: int, body: ManualPriceIn, db: Session = Depends(get_db
         db.refresh(src)
     _, previous = record_observation(
         db, src, price_cents=body.price_cents, was_price_cents=body.was_price_cents,
-        shipping_cents=body.shipping_cents, in_stock=body.in_stock, seller=body.store, method="manual")
+        shipping_cents=body.shipping_cents, in_stock=body.in_stock, seller=body.store, method="manual",
+        condition=body.condition, parse_confidence=CONFIDENCE["manual"])
+    if body.proof:
+        src.match_reasons = {**(src.match_reasons or {}), "last_proof": body.proof[:2000]}
     db.commit()
     run_alerts(db, src, previous)
     return source_out(src, settings_store.get(db, "province"), db)

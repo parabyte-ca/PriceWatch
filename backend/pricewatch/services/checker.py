@@ -56,14 +56,31 @@ def schedule_next(src: SourceLink, minutes: int | None = None, db: Session | Non
     src.next_check_at = utcnow() + timedelta(minutes=minutes or next_interval_minutes(src.item, db))
 
 
+MARKETPLACE_RETAILERS = {"bestbuy.ca", "walmart.ca", "amazon.ca", "newegg.ca", "thebay.com", "staples.ca",
+                         "canadiantire.ca", "sportchek.ca", "indigo.ca"}
+MARKETPLACE_HINTS = ("marketplace", "third party", "third-party", "sold by", "vendeur")
+LEGAL_SUFFIXES = (" inc", " ltd", " ltee", " ltée", " corp", " corporation", " co", " ulc", " lp", " limited")
+
+
 def seller_type_for(seller: str | None, retailer: Retailer | None) -> str:
-    """first_party unless the listed seller is clearly someone other than the retailer."""
+    """first_party unless the listed seller is clearly someone else.
+
+    Conservative on purpose: a wrong "marketplace" verdict hides a real first-party price. Only retailers that run
+    a marketplace can produce marketplace offers, plus any seller text that says so explicitly.
+    """
     if not seller or retailer is None:
         return "first_party"
-    s = seller.lower()
-    names = {retailer.name.lower(), retailer.domain.split(".")[0].lower()}
-    stems = {n.replace(" canada", "").replace(".ca", "").replace(" ", "") for n in names}
-    compact = s.replace(" ", "").replace(".ca", "").replace("canada", "")
+    s = seller.lower().strip()
+    if any(h in s for h in MARKETPLACE_HINTS):
+        return f"marketplace:{seller[:100]}"
+    if retailer.domain not in MARKETPLACE_RETAILERS:
+        return "first_party"
+    for suffix in LEGAL_SUFFIXES:
+        if s.endswith(suffix) or s.endswith(suffix + "."):
+            s = s[: s.rfind(suffix)].strip(" ,.")
+    compact = s.replace(" ", "").replace(".ca", "").replace(".com", "").replace("canada", "").replace("'", "")
+    stems = {retailer.name.lower(), retailer.domain.split(".")[0]}
+    stems = {n.replace(" canada", "").replace(".ca", "").replace(" ", "").replace("'", "") for n in stems}
     if any(st and (st in compact or compact in st) for st in stems):
         return "first_party"
     return f"marketplace:{seller[:100]}"

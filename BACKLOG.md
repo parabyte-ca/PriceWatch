@@ -2,6 +2,25 @@
 
 Items not yet scheduled into a phase. Newest first.
 
+## v0.4.0 (target Nov 22 to 25, from the 2026-11-15 delta review)
+
+1. Purchases and price-protection tracker: per purchase store retailer, price, date, channel; keep watching and
+   alert when a claimable drop occurs (Costco 30 days; Best Buy event guarantee on badged items; Staples 30/14 days
+   excluding event pricing). Highest value; ship by Nov 22 so early buys are protected.
+2. Proof package: full-page screenshot, URL, UTC and local timestamps, parsed price, seller, page hash, zipped.
+3. RedFlagDeals Hot Deals feed (see below; the review asks for the feed matcher by Nov 20).
+4. Gift lists per person and occasion with budget caps and spent vs remaining.
+5. Cash-back and gift card stacking notes per retailer (manual table; do not scrape Rakuten).
+6. Retailer JSON adapters (Best Buy province pricing, Canadian Tire / Sport Chek store pricing) once fixtures are
+   captured on TrueNAS; Costco and Walmart browser adapters with channel labels.
+
+## Phase 4 (after Cyber Monday)
+
+LLM match confirmation (Claude, Haiku-class, fuzzy 80 to 94 only, cached, user confirms), barcode scan,
+email-forward ingestion, Home Assistant sensors, weekly report with a Claude summary, Boxing Week mode
+(Dec 26 to 31), basket optimiser for free-shipping thresholds. Re-read Visualping's 2026 results (published
+Nov 27) and adjust the buy thresholds.
+
 ## RedFlagDeals intelligence (requested 2026-11-15, target: Phase 3, v0.3.0)
 
 Read redflagdeals.com Hot Deals threads and use them as hints and crowd context,

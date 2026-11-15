@@ -23,6 +23,18 @@ interface SettingsData {
   auto_confirm_gtin: boolean;
   serp_monthly_limit: number;
   discover_on_add: boolean;
+  buy_within_pct: number;
+  protect_within_pct: number;
+  season_start: string;
+  blackfriday_mode: boolean;
+  blackfriday_start: string;
+  blackfriday_end: string;
+  digest_enabled: boolean;
+  digest_time: string;
+  digest_time_blackfriday: string;
+  my_best_buy_member: boolean;
+  alert_domain_blocked: boolean;
+  api_token: string;
   provinces: Record<string, { name: string; rate: number }>;
   timezone: string;
 }
@@ -32,6 +44,7 @@ export default function SettingsPage() {
   const [urls, setUrls] = useState("");
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
+  const [token, setToken] = useState("");
 
   const load = () =>
     api<SettingsData>("/api/settings").then((d) => {
@@ -48,7 +61,7 @@ export default function SettingsPage() {
   const save = async () => {
     setError("");
     try {
-      const { provinces: _p, env_notify_urls: _e, timezone: _t, ...rest } = s;
+      const { provinces: _p, env_notify_urls: _e, timezone: _t, api_token: _a, ...rest } = s;
       await api("/api/settings", { method: "PATCH", json: { ...rest, notify_urls: urls.split("\n").map((u) => u.trim()).filter(Boolean) } });
       await load();
       setMsg("Saved");
@@ -107,6 +120,50 @@ export default function SettingsPage() {
       </div>
 
       <div className="card space-y-3">
+        <h2 className="font-semibold">Buy rule and Black Friday mode</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="label">BUY within % of seasonal low</label>
+            <input className="input" type="number" step="0.5" value={s.buy_within_pct} onChange={(e) => set("buy_within_pct", Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">BUY + PROTECT within %</label>
+            <input className="input" type="number" step="0.5" value={s.protect_within_pct} onChange={(e) => set("protect_within_pct", Number(e.target.value))} />
+          </div>
+          <div>
+            <label className="label">Season starts</label>
+            <input className="input" type="date" value={s.season_start} onChange={(e) => set("season_start", e.target.value)} />
+          </div>
+          <div className="flex items-end"><Toggle k="my_best_buy_member" label="My Best Buy member (60-day window)" /></div>
+        </div>
+        <Toggle k="blackfriday_mode" label="Black Friday mode: hot items every 30 minutes (top 25), twice-daily digest" />
+        <div className="flex gap-2">
+          <input className="input" type="datetime-local" value={s.blackfriday_start} onChange={(e) => set("blackfriday_start", e.target.value)} />
+          <input className="input" type="datetime-local" value={s.blackfriday_end} onChange={(e) => set("blackfriday_end", e.target.value)} />
+        </div>
+        <Toggle k="digest_enabled" label="Daily digest" />
+        <div className="flex gap-2">
+          <input className="input" type="time" value={s.digest_time} onChange={(e) => set("digest_time", e.target.value)} title="Daily" />
+          <input className="input" type="time" value={s.digest_time_blackfriday} onChange={(e) => set("digest_time_blackfriday", e.target.value)} title="Second digest in Black Friday mode" />
+        </div>
+        <button className="btn-ghost" onClick={async () => {
+          const d = await api<{ title: string; body: string }>("/api/digest/preview");
+          alert(`${d.title}\n\n${d.body}`);
+        }}>Preview digest</button>
+      </div>
+
+      <div className="card space-y-3">
+        <h2 className="font-semibold">API token</h2>
+        <p className="text-sm text-slate-500">For the iPhone Shortcut and scripts: send <code>Authorization: Bearer &lt;token&gt;</code>.</p>
+        <code className="block break-all rounded bg-slate-100 p-2 text-xs dark:bg-slate-800">{token || s.api_token}</code>
+        <div className="flex gap-2">
+          <button className="btn-ghost" onClick={() => api<{ token: string }>("/api/token").then((r) => setToken(r.token))}>Show</button>
+          <button className="btn-ghost" onClick={() => confirm("Replace the token? Existing Shortcuts stop working until updated.") &&
+            api<{ token: string }>("/api/token", { method: "POST" }).then((r) => setToken(r.token))}>Rotate</button>
+        </div>
+      </div>
+
+      <div className="card space-y-3">
         <h2 className="font-semibold">Discovery and matching</h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -141,11 +198,12 @@ export default function SettingsPage() {
           </p>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <Toggle k="alert_target" label="At or below target" />
-          <Toggle k="alert_all_time_low" label="New all-time low" />
-          <Toggle k="alert_back_in_stock" label="Back in stock" />
-          <Toggle k="alert_source_failing" label="Source failing 24 h" />
-          <Toggle k="alert_drop" label="Drop of at least" />
+          <Toggle k="alert_target" label="BUY / BUY + PROTECT (instant)" />
+          <Toggle k="alert_back_in_stock" label="Back in stock (instant)" />
+          <Toggle k="alert_domain_blocked" label="Retailer blocking checks (instant)" />
+          <Toggle k="alert_all_time_low" label="New low (instant; else digest)" />
+          <Toggle k="alert_source_failing" label="Source failing 24 h (instant; else digest)" />
+          <Toggle k="alert_drop" label="Drop of at least (instant; else digest)" />
           <input className="input w-24" type="number" value={s.alert_drop_pct} onChange={(e) => set("alert_drop_pct", Number(e.target.value))} />
         </div>
         <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">

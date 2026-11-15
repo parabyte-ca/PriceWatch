@@ -5,5 +5,30 @@
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#b91c1c",
-  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "Black Friday board",
+      "url": "/board"
+    },
+    {
+      "name": "Add item",
+      "url": "/add"
+    }
+  ]
 }

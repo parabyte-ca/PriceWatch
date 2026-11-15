@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ago, api, Item, money } from "../api";
-import Badge from "../components/Badge";
+import Badge, { Confidence } from "../components/Badge";
 
 type SortKey = "closest" | "priority" | "name" | "discount";
 
-const closeness = (i: Item) =>
-  i.target_price_cents && i.summary.compare_cents ? i.summary.compare_cents / i.target_price_cents : Number.POSITIVE_INFINITY;
+const RANK: Record<string, number> = { BUY: 0, BUY_AND_PROTECT: 1, WAIT: 2, NO_DATA: 3 };
+const closeness = (i: Item) => i.summary.distance_to_low_pct ?? Number.POSITIVE_INFINITY;
 
 export default function Wishlist() {
   const [items, setItems] = useState<Item[] | null>(null);
@@ -31,7 +31,8 @@ export default function Wishlist() {
   const rows = useMemo(() => {
     const list = (items || []).filter((i) => i.name.toLowerCase().includes(query.toLowerCase()));
     const cmp: Record<SortKey, (a: Item, b: Item) => number> = {
-      closest: (a, b) => closeness(a) - closeness(b) || a.priority - b.priority,
+      closest: (a, b) => RANK[a.summary.decision] - RANK[b.summary.decision] || closeness(a) - closeness(b) ||
+        a.priority - b.priority,
       priority: (a, b) => a.priority - b.priority || a.name.localeCompare(b.name),
       name: (a, b) => a.name.localeCompare(b.name),
       discount: (a, b) => (b.summary.real_discount_pct ?? -999) - (a.summary.real_discount_pct ?? -999),
@@ -49,7 +50,7 @@ export default function Wishlist() {
       </div>
     );
 
-  const buyNow = items.filter((i) => i.summary.badge === "BUY NOW").length;
+  const buyNow = items.filter((i) => i.summary.decision === "BUY" || i.summary.decision === "BUY_AND_PROTECT").length;
 
   return (
     <div className="space-y-3">
@@ -62,7 +63,7 @@ export default function Wishlist() {
           <option value="name">Name</option>
         </select>
         <span className="ml-auto text-sm text-slate-500">
-          {items.length} items{buyNow ? `, ${buyNow} at target` : ""}
+          {items.length} items{buyNow ? `, ${buyNow} to buy` : ""}
         </span>
       </div>
 
@@ -74,7 +75,7 @@ export default function Wishlist() {
               <th className="th">Item</th>
               <th className="th text-right">Best landed</th>
               <th className="th text-right">Target</th>
-              <th className="th text-right">30-day low</th>
+              <th className="th text-right">Seasonal low</th>
               <th className="th">Status</th>
               <th className="th">Checked</th>
               <th className="th text-right">Sources</th>
@@ -85,7 +86,7 @@ export default function Wishlist() {
               <tr key={i.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50">
                 <td className="td">
                   <Link to={`/items/${i.id}`} className="font-medium hover:underline">
-                    {i.hot && <span title="Hot: checked hourly">🔥 </span>}
+                    {i.hot && <span title="Hot: checked every 2 hours, every 30 minutes in Black Friday mode">🔥 </span>}
                     {i.name}
                   </Link>
                   <div className="text-xs text-slate-500">
@@ -99,8 +100,18 @@ export default function Wishlist() {
                   <div className="text-xs font-normal text-slate-500">{money(i.summary.best_price_cents)} before tax</div>
                 </td>
                 <td className="td text-right">{money(i.target_price_cents)}</td>
-                <td className="td text-right">{money(i.summary.low_30_cents)}</td>
-                <td className="td"><Badge value={i.summary.badge} /></td>
+                <td className="td text-right">
+                  {money(i.summary.seasonal_low_cents)}
+                  {i.summary.distance_to_low_pct != null && (
+                    <div className="text-xs text-slate-500">{i.summary.distance_to_low_pct > 0 ? "+" : ""}{i.summary.distance_to_low_pct}% now</div>
+                  )}
+                </td>
+                <td className="td">
+                  <Badge value={i.summary.badge} />
+                  <div><Confidence level={i.summary.history_confidence} /></div>
+                  {i.summary.price_match.length > 0 && <div className="text-xs text-blue-600">price match</div>}
+                  {i.summary.stale && i.summary.source_count > 0 && <div className="text-xs text-amber-600">stale</div>}
+                </td>
                 <td className="td whitespace-nowrap text-slate-500">{ago(i.summary.last_checked_at)}</td>
                 <td className="td text-right">{i.summary.source_count}</td>
               </tr>
@@ -120,7 +131,7 @@ export default function Wishlist() {
             <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
               <div><div className="label">Best</div>{money(i.summary.best_landed_cents)}</div>
               <div><div className="label">Target</div>{money(i.target_price_cents)}</div>
-              <div><div className="label">30-day low</div>{money(i.summary.low_30_cents)}</div>
+              <div><div className="label">Seasonal low</div>{money(i.summary.seasonal_low_cents)}</div>
             </div>
             <div className="mt-1 text-xs text-slate-500">
               {i.summary.best?.retailer || "No price yet"} · checked {ago(i.summary.last_checked_at)} · {i.summary.source_count} sources

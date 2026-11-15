@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.0] - 2026-11-15
+### Added
+- Buy rule from the 2026-11-15 delta review: seasonal low (since Oct 1 or 90 days, landed), history confidence (LOW/MEDIUM/HIGH), BUY within 2%, BUY + PROTECT within 5% when price protection covers the event, WAIT otherwise; rationale shown in the UI
+- Black Friday mode (Nov 26 to Dec 1): top 25 hot items every 30 minutes, second daily digest, 2-hour alert window per item; Black Friday board page
+- Price policies table (editable): Best Buy Canada, Staples, Costco, Walmart, Canadian Tire (unverified, off); price-match opportunities with event-exclusion caveats
+- Keepa adapter for Amazon.ca (optional key), with history seeding; Amazon defaults to Keepa or manual entry, never direct scraping
+- changedetection.io bridge: hand a source to a restock watch, sync its price and stock every 15 minutes
+- Observation fields: channel, seller type, condition, coupon, parse confidence; marketplace and non-new offers recorded but not compared by default
+- Block detection for 200 responses that are bot challenges; circuit breaker (3 blocks, 6 hours) with one alert
+- ntfy action buttons (Bought, Snooze 24h, Raise target) through signed links; snooze per item
+- Daily digest (07:30, plus 19:30 in Black Friday mode); drops, new lows and failing sources go to the digest by default
+- Quick add: paste a list, bookmarklet, PWA share target, API token for an iPhone Shortcut
+- Nightly `VACUUM INTO` backup; `/healthz` reports write check, freshness and changedetection.io
+- Manual prices take a channel, condition and proof note
+- Operations guide for TrueNAS (datasets, snapshot tasks, Tailscale access, browser recycle)
+
+### Changed
+- Politeness: 20 s per domain plus up to 30% jitter, one browser page per domain at a time, schedule jitter plus or minus 30%, hot items every 2 hours
+- Lows and the fake-sale test use landed prices; GOOD badge replaced by the buy rule
+- Retailer seed: The Source removed (now Best Buy Express); Sport Chek, Indigo, Shoppers Drug Mart added; Walmart and Costco default to the browser at 60 s spacing
+
+### Fixed
+- Database migrations now run with SQLite foreign keys off, so table rebuilds can no longer cascade-delete sources and price history
+
 ## [0.2.0] - 2026-11-15
 ### Added
 - Search provider interface with SerpApi and Bright Data (Google Shopping, gl=ca), 7-day cache, monthly limit and usage on the System page

@@ -22,7 +22,15 @@ interface Retailer { id: number; domain: string; name: string; fetch_mode: strin
 const rateClass = (r: number | null | undefined) =>
   r == null ? "" : r >= 90 ? "text-green-700" : r >= 50 ? "text-amber-600" : "text-red-600";
 
+interface Policy { id: number; domain: string; competitor_match: boolean; own_price_adjustment: boolean;
+  window_days: number | null; excluded_events: string[] | null; verified: boolean; enabled: boolean; notes: string | null;
+  event_guarantee: string | null }
+
 export default function SystemPage() {
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const loadPolicies = () => api<Policy[]>("/api/policies").then(setPolicies).catch(() => {});
+  useEffect(() => { loadPolicies(); }, []);
+  const patchPolicy = (id: number, json: object) => api(`/api/policies/${id}`, { method: "PATCH", json }).then(loadPolicies);
   const [data, setData] = useState<SystemData | null>(null);
   const [retailers, setRetailers] = useState<Retailer[]>([]);
   const [error, setError] = useState("");
@@ -89,7 +97,7 @@ export default function SystemPage() {
         <table className="w-full">
           <thead><tr>
             <th className="th">Retailer</th><th className="th">Fetch mode</th><th className="th">robots.txt</th>
-            <th className="th">Price match</th><th className="th">Free shipping from</th><th className="th">Shipping</th><th className="th"></th>
+            <th className="th">Free shipping from</th><th className="th">Shipping</th><th className="th"></th>
           </tr></thead>
           <tbody>
             {used.map((r) => (
@@ -98,13 +106,11 @@ export default function SystemPage() {
                 <td className="td">
                   <select className="input w-auto py-1" value={r.fetch_mode} onChange={(e) => patch(r.id, { fetch_mode: e.target.value })}>
                     <option value="auto">auto</option><option value="http">http only</option><option value="browser">browser</option>
+                    <option value="keepa">keepa</option><option value="manual">manual only</option>
                   </select>
                 </td>
                 <td className="td">
                   <input type="checkbox" checked={r.respect_robots} onChange={(e) => patch(r.id, { respect_robots: e.target.checked })} /> respect
-                </td>
-                <td className="td">
-                  <input type="checkbox" checked={r.price_match} onChange={(e) => patch(r.id, { price_match: e.target.checked })} />
                 </td>
                 <td className="td">
                   <input className="input w-24 py-1" inputMode="decimal" placeholder="n/a" defaultValue={toDollars(r.free_shipping_threshold_cents)}
@@ -120,6 +126,28 @@ export default function SystemPage() {
                 <td className="td text-right">
                   {r.backoff_until && <button className="btn-ghost px-2 py-1 text-xs" onClick={() => patch(r.id, { clear_backoff: true })}>Clear backoff</button>}
                 </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="card overflow-x-auto">
+        <h2 className="mb-2 font-semibold">Price match and protection policies</h2>
+        <p className="mb-2 text-xs text-slate-500">Policies change; confirm with the retailer before relying on one. Unverified policies stay off until you enable them.</p>
+        <table className="w-full text-sm">
+          <thead><tr><th className="th">Retailer</th><th className="th">Matches competitors</th><th className="th">Own price adjustment</th>
+            <th className="th">Excludes</th><th className="th">Verified</th><th className="th">On</th></tr></thead>
+          <tbody>
+            {policies.map((p) => (
+              <tr key={p.id} className="border-t border-slate-100 align-top dark:border-slate-800">
+                <td className="td">{p.domain}<div className="max-w-md text-xs text-slate-500">{p.notes}</div>
+                  {p.event_guarantee && <div className="max-w-md text-xs text-teal-700">{p.event_guarantee}</div>}</td>
+                <td className="td">{p.competitor_match ? "yes" : "no"}</td>
+                <td className="td">{p.own_price_adjustment ? `${p.window_days} days` : "no"}</td>
+                <td className="td text-xs">{(p.excluded_events || []).join(", ").replace(/_/g, " ")}</td>
+                <td className="td"><input type="checkbox" checked={p.verified} onChange={(e) => patchPolicy(p.id, { verified: e.target.checked })} /></td>
+                <td className="td"><input type="checkbox" checked={p.enabled} onChange={(e) => patchPolicy(p.id, { enabled: e.target.checked })} /></td>
               </tr>
             ))}
           </tbody>
