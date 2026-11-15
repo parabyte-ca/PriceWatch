@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ago, api, Item, money } from "../api";
 import Badge, { Confidence } from "../components/Badge";
+import { useSession } from "../session";
 
 type SortKey = "closest" | "priority" | "name" | "discount";
 
@@ -13,13 +14,20 @@ export default function Wishlist() {
   const [error, setError] = useState("");
   const [sort, setSort] = useState<SortKey>(() => (localStorage.getItem("pw-sort") as SortKey) || "closest");
   const [query, setQuery] = useState("");
+  const { lists } = useSession();
+  const [listId, setListId] = useState<string>(() => {
+    try { return localStorage.getItem("pw-list") || ""; } catch { return ""; }
+  });
+  const listName = (id: number | null) => lists.find((l) => l.id === id)?.name;
 
-  const load = () => api<Item[]>("/api/items").then(setItems).catch((e) => setError(e.message));
+  const load = () => api<Item[]>(`/api/items${listId ? `?list_id=${listId}` : ""}`).then(setItems).catch((e) => setError(e.message));
   useEffect(() => {
     load();
+    try { localStorage.setItem("pw-list", listId); } catch { /* storage unavailable */ }
     const t = setInterval(load, 60_000);
     return () => clearInterval(t);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listId]);
   useEffect(() => {
     try {
       localStorage.setItem("pw-sort", sort);
@@ -55,6 +63,12 @@ export default function Wishlist() {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
+        {lists.length > 1 && (
+          <select className="input w-auto" value={listId} onChange={(e) => setListId(e.target.value)}>
+            <option value="">All my lists</option>
+            {lists.map((l) => <option key={l.id} value={l.id}>{l.name}{l.shared ? " (shared)" : ""}</option>)}
+          </select>
+        )}
         <input className="input max-w-xs" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} />
         <select className="input w-auto" value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
           <option value="closest">Closest to buying</option>
@@ -90,6 +104,7 @@ export default function Wishlist() {
                     {i.name}
                   </Link>
                   <div className="text-xs text-slate-500">
+                    {!listId && lists.length > 1 && <span className="mr-1 rounded bg-slate-100 px-1 dark:bg-slate-800">{listName(i.list_id)}</span>}
                     {i.summary.best?.retailer || ""}
                     {i.summary.at_all_time_low && <span className="ml-1 font-semibold text-green-700">lowest seen</span>}
                     {i.summary.suggested_count > 0 && <span className="ml-1 text-blue-600">{i.summary.suggested_count} to review</span>}

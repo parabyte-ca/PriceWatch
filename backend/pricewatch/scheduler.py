@@ -7,8 +7,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import or_, select
 
 from .db import session_scope
-from .models import Item, SourceLink
-from .services import alerts, changedetection, events, runtime
+from .models import Item, Purchase, SourceLink
+from .services import alerts, changedetection, events, protection, runtime
 from .services.checker import check_source
 from .timeutil import utcnow
 
@@ -26,7 +26,8 @@ def due_source_ids(limit: int = 100) -> list[int]:
             select(SourceLink.id)
             .join(Item, Item.id == SourceLink.item_id)
             .where(
-                Item.active.is_(True),
+                or_(Item.active.is_(True), Item.id.in_(
+                    select(Purchase.item_id).where(Purchase.status.in_(["watching", "claimable"])))),
                 SourceLink.status == "confirmed",
                 ~SourceLink.url.startswith("manual://"),
                 or_(SourceLink.fetch_mode.is_(None), SourceLink.fetch_mode.notin_(["manual", "changedetection"])),
@@ -74,6 +75,7 @@ async def housekeeping() -> None:
         alerts.flush_deferred(db)
         alerts.check_failing_sources(db)
         alerts.maybe_send_digest(db)
+        protection.expire(db)
     except Exception:  # noqa: BLE001
         log.exception("housekeeping failed")
     finally:
@@ -102,6 +104,18 @@ async def nightly_backup() -> None:
         log.exception("nightly backup failed")
 
 
+async def deal_feed() -> None:
+    from .services import dealfeed
+
+    db = session_scope()
+    try:
+        await dealfeed.poll(db)
+    except Exception:  # noqa: BLE001
+        log.exception("deal feed failed")
+    finally:
+        db.close()
+
+
 async def changedetection_sync() -> None:
     if not changedetection.configured():
         return
@@ -121,6 +135,7 @@ def start() -> AsyncIOScheduler:
     _scheduler.add_job(nightly_backup, "interval", minutes=10, id="backup", max_instances=1, coalesce=True)
     _scheduler.add_job(changedetection_sync, "interval", minutes=15, id="changedetection", max_instances=1,
                        coalesce=True)
+    _scheduler.add_job(deal_feed, "interval", minutes=15, id="deal_feed", max_instances=1, coalesce=True)
     _scheduler.start()
     return _scheduler
 

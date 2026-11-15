@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rss [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
+<rss version="2.0"><channel><title>Hot Deals</title>
+<item><title>[Best Buy] Sony WH-1000XM6 Noise Cancelling Headphones $399.99 (reg $549.99)</title>
+<link>https://forums.redflagdeals.com/best-buy-sony-wh-1000xm6-399-99-2700001/</link><guid>rfd-2700001</guid>
+<pubDate>Sun, 15 Nov 2026 14:00:00 +0000</pubDate></item>
+<item><title>[Best Buy] Sony WH1000XM6 headphones $399.99 YMMV</title>
+<link>https://forums.redflagdeals.com/best-buy-sony-wh1000xm6-2700002/</link><guid>rfd-2700002</guid></item>
+<item><title>[Amazon] Sony WH-1000XM5 $279</title><link>https://forums.redflagdeals.com/amazon-xm5-2700003/</link><guid>rfd-2700003</guid></item>
+<item><title>[Costco] DEWALT 20V MAX Cordless Drill Kit DCD777C2 $99.99 &xxe;</title>
+<link>https://forums.redflagdeals.com/costco-dewalt-2700004/</link><guid>rfd-2700004</guid></item>
+<item><title>[Walmart] Random kettle $19</title><link>https://forums.redflagdeals.com/kettle-2700005/</link><guid>rfd-2700005</guid></item>
+</channel></rss>

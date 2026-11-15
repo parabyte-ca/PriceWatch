@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     # auth: "password" (built-in login) or "none" (reverse proxy handles it)
     auth_mode: str = "password"
+    admin_username: str = "admin"
     admin_password: str | None = None
     secret_key: str | None = None
     cookie_secure: bool = False

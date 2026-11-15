@@ -21,10 +21,83 @@ from .db import Base
 from .timeutil import utcnow
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(60), unique=True)
+    display_name: Mapped[str] = mapped_column(String(100))
+    password_hash: Mapped[str | None] = mapped_column(String(300))
+    api_token_hash: Mapped[str | None] = mapped_column(String(64), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="member")  # admin | member
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class WishList(Base):
+    __tablename__ = "lists"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    members: Mapped[list["ListMember"]] = relationship(back_populates="list", cascade="all, delete-orphan")
+
+
+class ListMember(Base):
+    __tablename__ = "list_members"
+    __table_args__ = (UniqueConstraint("list_id", "user_id", name="uq_list_member"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int] = mapped_column(ForeignKey("lists.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(20), default="editor")  # owner | editor | viewer
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    list: Mapped[WishList] = relationship(back_populates="members")
+    user: Mapped[User] = relationship()
+
+
+class ListInvite(Base):
+    __tablename__ = "list_invites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int] = mapped_column(ForeignKey("lists.id", ondelete="CASCADE"), index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    role: Mapped[str] = mapped_column(String(20), default="editor")
+    created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class UserSetting(Base):
+    __tablename__ = "user_settings"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSON)
+
+
+class UserItemPref(Base):
+    """Per-person preferences on an item (shared items keep separate snoozes)."""
+
+    __tablename__ = "user_item_prefs"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), primary_key=True)
+    snoozed_until: Mapped[datetime | None] = mapped_column(DateTime)
+    muted: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
 class Item(Base):
     __tablename__ = "items"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    list_id: Mapped[int | None] = mapped_column(ForeignKey("lists.id", ondelete="CASCADE"), index=True)
+    added_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     name: Mapped[str] = mapped_column(String(300))
     brand: Mapped[str | None] = mapped_column(String(120))
     model: Mapped[str | None] = mapped_column(String(120))
@@ -195,6 +268,7 @@ class Alert(Base):
     __tablename__ = "alerts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
     rule_type: Mapped[str] = mapped_column(String(30))
     dedup_key: Mapped[str] = mapped_column(String(200), index=True)
@@ -229,6 +303,50 @@ class SerpSearch(Base):
     error: Mapped[str | None] = mapped_column(Text)
 
 
+class Purchase(Base):
+    """Something a person bought; watched for claimable price drops during its protection window."""
+
+    __tablename__ = "purchases"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    source_link_id: Mapped[int | None] = mapped_column(ForeignKey("source_links.id", ondelete="SET NULL"))
+    retailer_domain: Mapped[str | None] = mapped_column(String(200))
+    retailer_name: Mapped[str] = mapped_column(String(200))
+    channel: Mapped[str] = mapped_column(String(40), default="online")
+    price_cents: Mapped[int] = mapped_column(Integer)
+    shipping_cents: Mapped[int | None] = mapped_column(Integer)
+    purchased_on: Mapped[date] = mapped_column(Date)
+    protection_days: Mapped[int] = mapped_column(Integer, default=0)
+    protection_until: Mapped[date | None] = mapped_column(Date, index=True)
+    protection_basis: Mapped[str | None] = mapped_column(String(200))
+    badged: Mapped[bool] = mapped_column(Boolean, default=False)
+    order_ref: Mapped[str | None] = mapped_column(String(100))
+    notes: Mapped[str | None] = mapped_column(Text)
+    lowest_seen_cents: Mapped[int | None] = mapped_column(Integer)
+    lowest_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(20), default="watching")  # watching|claimable|claimed|expired|closed
+    claimed_cents: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class ProofCapture(Base):
+    """Evidence captured when a claimable drop was seen: page snapshot, hash, timestamps."""
+
+    __tablename__ = "proof_captures"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    purchase_id: Mapped[int] = mapped_column(ForeignKey("purchases.id", ondelete="CASCADE"), index=True)
+    observation_id: Mapped[int | None] = mapped_column(ForeignKey("observations.id", ondelete="SET NULL"))
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    url: Mapped[str] = mapped_column(String(2000))
+    price_cents: Mapped[int] = mapped_column(Integer)
+    seller: Mapped[str | None] = mapped_column(String(200))
+    page_sha256: Mapped[str | None] = mapped_column(String(64))
+    path: Mapped[str | None] = mapped_column(String(500))  # folder under data/artifacts
+
+
 class DealFeedEntry(Base):
     __tablename__ = "deal_feed_entries"
 
@@ -240,4 +358,8 @@ class DealFeedEntry(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime)
     matched_item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="SET NULL"))
     match_score: Mapped[float | None] = mapped_column(Float)
+    retailer_domain: Mapped[str | None] = mapped_column(String(200))
+    deal_url: Mapped[str | None] = mapped_column(String(2000))
+    matched_source_id: Mapped[int | None] = mapped_column(ForeignKey("source_links.id", ondelete="SET NULL"))
+    price_cents: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

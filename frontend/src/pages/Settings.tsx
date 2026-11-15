@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import Account from "../components/Account";
 
 interface SettingsData {
   province: string;
@@ -34,7 +35,10 @@ interface SettingsData {
   digest_time_blackfriday: string;
   my_best_buy_member: boolean;
   alert_domain_blocked: boolean;
-  api_token: string;
+  is_admin: boolean;
+  alert_deal_feed: boolean;
+  deal_feed_enabled: boolean;
+  min_claim_cents: number;
   provinces: Record<string, { name: string; rate: number }>;
   timezone: string;
 }
@@ -44,7 +48,6 @@ export default function SettingsPage() {
   const [urls, setUrls] = useState("");
   const [msg, setMsg] = useState("");
   const [error, setError] = useState("");
-  const [token, setToken] = useState("");
 
   const load = () =>
     api<SettingsData>("/api/settings").then((d) => {
@@ -61,7 +64,7 @@ export default function SettingsPage() {
   const save = async () => {
     setError("");
     try {
-      const { provinces: _p, env_notify_urls: _e, timezone: _t, api_token: _a, ...rest } = s;
+      const { provinces: _p, env_notify_urls: _e, timezone: _t, is_admin: _a, user_keys: _u, ...rest } = s as SettingsData & { user_keys?: string[] };
       await api("/api/settings", { method: "PATCH", json: { ...rest, notify_urls: urls.split("\n").map((u) => u.trim()).filter(Boolean) } });
       await load();
       setMsg("Saved");
@@ -90,7 +93,7 @@ export default function SettingsPage() {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <div className="card space-y-3">
-        <h2 className="font-semibold">Prices</h2>
+        <h2 className="font-semibold">Your prices</h2>
         <div>
           <label className="label">Province (sales tax)</label>
           <select className="input" value={s.province} onChange={(e) => set("province", e.target.value)}>
@@ -106,22 +109,12 @@ export default function SettingsPage() {
             <option value="landed">Landed price (tax and shipping)</option>
           </select>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="label">Fake sale if less than % below median</label>
-            <input className="input" type="number" step="0.5" value={s.fake_sale_pct} onChange={(e) => set("fake_sale_pct", Number(e.target.value))} />
-          </div>
-          <div>
-            <label className="label">"Good" within % of low</label>
-            <input className="input" type="number" step="0.5" value={s.good_within_pct} onChange={(e) => set("good_within_pct", Number(e.target.value))} />
-          </div>
-        </div>
-        <Toggle k="browser_fallback" label="Use the browser sidecar when a page has no price (if enabled in .env)" />
+        {s.is_admin && <Toggle k="browser_fallback" label="Use the browser sidecar when a page has no price (household)" />}
       </div>
 
       <div className="card space-y-3">
-        <h2 className="font-semibold">Buy rule and Black Friday mode</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <h2 className="font-semibold">Buy rule, Black Friday mode and digest</h2>
+        {s.is_admin ? <><div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">BUY within % of seasonal low</label>
             <input className="input" type="number" step="0.5" value={s.buy_within_pct} onChange={(e) => set("buy_within_pct", Number(e.target.value))} />
@@ -134,13 +127,13 @@ export default function SettingsPage() {
             <label className="label">Season starts</label>
             <input className="input" type="date" value={s.season_start} onChange={(e) => set("season_start", e.target.value)} />
           </div>
-          <div className="flex items-end"><Toggle k="my_best_buy_member" label="My Best Buy member (60-day window)" /></div>
         </div>
         <Toggle k="blackfriday_mode" label="Black Friday mode: hot items every 30 minutes (top 25), twice-daily digest" />
         <div className="flex gap-2">
           <input className="input" type="datetime-local" value={s.blackfriday_start} onChange={(e) => set("blackfriday_start", e.target.value)} />
           <input className="input" type="datetime-local" value={s.blackfriday_end} onChange={(e) => set("blackfriday_end", e.target.value)} />
-        </div>
+        </div></> : <p className="text-xs text-slate-500">The buy rule and Black Friday dates are set by the household admin.</p>}
+        <Toggle k="my_best_buy_member" label="I am a My Best Buy member (60-day window)" />
         <Toggle k="digest_enabled" label="Daily digest" />
         <div className="flex gap-2">
           <input className="input" type="time" value={s.digest_time} onChange={(e) => set("digest_time", e.target.value)} title="Daily" />
@@ -152,19 +145,8 @@ export default function SettingsPage() {
         }}>Preview digest</button>
       </div>
 
-      <div className="card space-y-3">
-        <h2 className="font-semibold">API token</h2>
-        <p className="text-sm text-slate-500">For the iPhone Shortcut and scripts: send <code>Authorization: Bearer &lt;token&gt;</code>.</p>
-        <code className="block break-all rounded bg-slate-100 p-2 text-xs dark:bg-slate-800">{token || s.api_token}</code>
-        <div className="flex gap-2">
-          <button className="btn-ghost" onClick={() => api<{ token: string }>("/api/token").then((r) => setToken(r.token))}>Show</button>
-          <button className="btn-ghost" onClick={() => confirm("Replace the token? Existing Shortcuts stop working until updated.") &&
-            api<{ token: string }>("/api/token", { method: "POST" }).then((r) => setToken(r.token))}>Rotate</button>
-        </div>
-      </div>
-
-      <div className="card space-y-3">
-        <h2 className="font-semibold">Discovery and matching</h2>
+      {s.is_admin && <div className="card space-y-3">
+        <h2 className="font-semibold">Discovery and matching (household)</h2>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label">Title match threshold (%)</label>
@@ -178,12 +160,18 @@ export default function SettingsPage() {
           </div>
         </div>
         <Toggle k="discover_on_add" label="Search automatically when adding an item by name" />
+        <Toggle k="deal_feed_enabled" label="Watch the RedFlagDeals Hot Deals feed (every 15 minutes)" />
+        <div>
+          <label className="label">Smallest price drop worth a protection claim ($)</label>
+          <input className="input w-28" type="number" step="0.5" value={(s.min_claim_cents || 0) / 100}
+            onChange={(e) => set("min_claim_cents", Math.round(Number(e.target.value) * 100))} />
+        </div>
         <Toggle k="auto_confirm_gtin" label="Auto-confirm listings whose GTIN/UPC matches exactly" />
         <p className="text-xs text-slate-500">
           Providers are enabled by SERPAPI_KEY or BRIGHTDATA_API_KEY in .env. Results are cached for 7 days per query.
           SerpApi's free plan allows 250 searches a month.
         </p>
-      </div>
+      </div>}
 
       <div className="card space-y-3">
         <h2 className="font-semibold">Notifications</h2>
@@ -200,7 +188,8 @@ export default function SettingsPage() {
         <div className="grid grid-cols-2 gap-2">
           <Toggle k="alert_target" label="BUY / BUY + PROTECT (instant)" />
           <Toggle k="alert_back_in_stock" label="Back in stock (instant)" />
-          <Toggle k="alert_domain_blocked" label="Retailer blocking checks (instant)" />
+          <Toggle k="alert_deal_feed" label="RedFlagDeals thread for my items (instant; else digest)" />
+          {s.is_admin && <Toggle k="alert_domain_blocked" label="Retailer blocking checks (instant)" />}
           <Toggle k="alert_all_time_low" label="New low (instant; else digest)" />
           <Toggle k="alert_source_failing" label="Source failing 24 h (instant; else digest)" />
           <Toggle k="alert_drop" label="Drop of at least (instant; else digest)" />
@@ -216,6 +205,8 @@ export default function SettingsPage() {
         </div>
         <button className="btn-ghost" onClick={test}>Send test alert</button>
       </div>
+
+      <Account />
 
       <div className="md:col-span-2 flex items-center gap-3">
         <button className="btn-primary" onClick={save}>Save settings</button>

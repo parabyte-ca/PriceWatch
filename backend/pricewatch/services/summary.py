@@ -6,7 +6,7 @@ from datetime import timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import Item, Observation, PricePolicy, SourceLink
+from ..models import Item, Observation, PricePolicy, SourceLink, UserItemPref
 from ..pricing import effective_shipping, landed_price
 from ..timeutil import utcnow
 from . import events, settings_store
@@ -35,10 +35,15 @@ def _offer_counts(item: Item, condition: str | None, seller_type: str | None) ->
     return counts_for_item(item, condition or "new", seller_type or "first_party") is None
 
 
-def summarize_items(db: Session, items: list[Item]) -> dict[int, dict]:
+def summarize_items(db: Session, items: list[Item], user_id: int | None = None) -> dict[int, dict]:
+    """Summaries as seen by one person (their province, target basis and snoozes)."""
     if not items:
         return {}
-    cfg = settings_store.get_all(db)
+    if user_id is None:
+        user_id = settings_store._admin_id(db)
+    cfg = settings_store.get_all(db, user_id)
+    snoozes = {p.item_id: p for p in db.scalars(select(UserItemPref).where(
+        UserItemPref.user_id == user_id, UserItemPref.item_id.in_([i.id for i in items]))).all()} if user_id else {}
     province = cfg["province"]
     overrides = cfg.get("tax_overrides") or {}
     buy_pct, protect_pct = float(cfg["buy_within_pct"]), float(cfg["protect_within_pct"])
@@ -157,7 +162,8 @@ def summarize_items(db: Session, items: list[Item]) -> dict[int, dict]:
             "price_match": opportunities,
             "last_checked_at": last_checked,
             "stale": last_success is None or last_success < now - timedelta(hours=24),
-            "snoozed": bool(item.snoozed_until and item.snoozed_until > now),
+            "snoozed": bool(item.id in snoozes and (snoozes[item.id].muted or (
+                snoozes[item.id].snoozed_until and snoozes[item.id].snoozed_until > now))),
             "source_count": len(confirmed),
             "suggested_count": sum(1 for s in item.sources if s.status == "suggested"),
         }

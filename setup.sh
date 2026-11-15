@@ -94,7 +94,7 @@ for _ in $(seq 1 60); do
     log "PriceWatch CA v$VERSION is running on port $PORT"
     if [ -n "$NEW_PASSWORD" ]; then
       echo
-      echo "  Admin password (stored in .env): $NEW_PASSWORD"
+      echo "  Sign in as: admin   password (stored in .env): $NEW_PASSWORD"
       echo
     fi
     log "next: open http://<truenas-ip>:$PORT, set a notification URL in Settings and send a test alert"

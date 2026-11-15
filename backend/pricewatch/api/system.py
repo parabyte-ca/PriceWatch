@@ -7,9 +7,10 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from .. import __version__
+from ..auth import current_user, require_admin
 from ..config import get_settings
 from ..db import get_db
-from ..models import Alert, FetchRun, Item, Retailer, SourceLink
+from ..models import Alert, FetchRun, Item, Retailer, SourceLink, User
 from ..pricing import PROVINCE_TAX
 from ..schemas import AlertOut, RetailerOut, RetailerUpdate
 from ..serp import available_providers
@@ -21,16 +22,28 @@ router = APIRouter(prefix="/api", tags=["system"])
 
 
 @router.get("/settings")
-def get_settings_api(db: Session = Depends(get_db)):
-    values = settings_store.public_view(settings_store.get_all(db))
+def get_settings_api(db: Session = Depends(get_db), me: User = Depends(current_user)):
+    values = settings_store.public_view(settings_store.get_all(db, me.id))
+    if me.role != "admin":
+        values["env_notify_urls"] = []
+    values["user_keys"] = sorted(settings_store.USER_KEYS)
+    values["is_admin"] = me.role == "admin"
     values["provinces"] = {k: {"name": v[0], "rate": float(v[1])} for k, v in PROVINCE_TAX.items()}
     values["timezone"] = get_settings().timezone
     return values
 
 
 @router.patch("/settings")
-def patch_settings(body: dict, db: Session = Depends(get_db)):
+def patch_settings(body: dict, db: Session = Depends(get_db), me: User = Depends(current_user)):
     body = {k: v for k, v in body.items() if k in settings_store.DEFAULTS}
+    household = {k for k in body if k not in settings_store.USER_KEYS}
+    if household and me.role != "admin":
+        # members may send the whole form back; ignore household values that did not change
+        current = settings_store.get_all(db, me.id)
+        changed = {k for k in household if body[k] != current.get(k)}
+        if changed:
+            raise HTTPException(403, f"Only the household admin can change: {', '.join(sorted(changed))}")
+        body = {k: v for k, v in body.items() if k in settings_store.USER_KEYS}
     if "province" in body and str(body["province"]).upper() not in PROVINCE_TAX:
         raise HTTPException(422, "Unknown province")
     if "province" in body:
@@ -40,7 +53,7 @@ def patch_settings(body: dict, db: Session = Depends(get_db)):
         if not isinstance(urls, list) or not all(isinstance(u, str) for u in urls):
             raise HTTPException(422, "notify_urls must be a list of strings")
         # masked values coming back from the UI mean "keep the existing URL"
-        current = settings_store.get(db, "notify_urls") or []
+        current = settings_store.get(db, "notify_urls", me.id) or []
         masked = {settings_store.mask_url(u): u for u in current}
         body["notify_urls"] = [masked.get(u, u) for u in urls if u.strip()]
     numeric = {"match_threshold": (50, 100), "serp_monthly_limit": (0, 100000), "alert_drop_pct": (1, 90),
@@ -59,14 +72,14 @@ def patch_settings(body: dict, db: Session = Depends(get_db)):
                 alerts._parse_hhmm(body[key])
             except (ValueError, AttributeError) as exc:
                 raise HTTPException(422, f"{key} must be HH:MM") from exc
-    values = settings_store.update(db, body)
+    values = settings_store.update(db, body, me.id)
     return settings_store.public_view(values)
 
 
 @router.post("/settings/test-alert")
-def test_alert(db: Session = Depends(get_db)):
-    alert = Alert(rule_type="test", dedup_key=f"test:{utcnow().isoformat()}", title="PriceWatch CA test alert",
-                  body="If you can read this, notifications work.")
+def test_alert(db: Session = Depends(get_db), me: User = Depends(current_user)):
+    alert = Alert(rule_type="test", dedup_key=f"u{me.id}:test:{utcnow().isoformat()}", user_id=me.id,
+                  title="PriceWatch CA test alert", body=f"Hi {me.display_name}, notifications work.")
     db.add(alert)
     db.flush()
     alerts.deliver(db, alert, force=True)
@@ -74,8 +87,9 @@ def test_alert(db: Session = Depends(get_db)):
 
 
 @router.get("/alerts", response_model=list[AlertOut])
-def list_alerts(limit: int = 100, db: Session = Depends(get_db)):
-    return db.scalars(select(Alert).order_by(Alert.created_at.desc()).limit(min(limit, 500))).all()
+def list_alerts(limit: int = 100, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    return db.scalars(select(Alert).where(Alert.user_id == me.id)
+                      .order_by(Alert.created_at.desc()).limit(min(limit, 500))).all()
 
 
 @router.get("/retailers", response_model=list[RetailerOut])
@@ -84,7 +98,8 @@ def list_retailers(db: Session = Depends(get_db)):
 
 
 @router.patch("/retailers/{retailer_id}", response_model=RetailerOut)
-def update_retailer(retailer_id: int, body: RetailerUpdate, db: Session = Depends(get_db)):
+def update_retailer(retailer_id: int, body: RetailerUpdate, db: Session = Depends(get_db),
+                    _: User = Depends(require_admin)):
     r = db.get(Retailer, retailer_id)
     if r is None:
         raise HTTPException(404, "Retailer not found")

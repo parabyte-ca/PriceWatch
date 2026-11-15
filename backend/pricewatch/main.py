@@ -14,10 +14,12 @@ from sqlalchemy import func, select, text
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__, scheduler
+from .api import accounts as accounts_api
 from .api import extra as extra_api
 from .api import items as items_api
+from .api import purchases as purchases_api
 from .api import system as system_api
-from .auth import AuthMiddleware, ensure_api_token, load_secret_key
+from .auth import AuthMiddleware, bootstrap, load_secret_key
 from .auth import router as auth_router
 from .config import get_settings
 from .db import get_engine, init_engine, session_scope
@@ -45,7 +47,7 @@ async def lifespan(app: FastAPI):
         seed_retailers(db)
     finally:
         db.close()
-    ensure_api_token()
+    bootstrap()
     if s.auth_mode == "password" and not s.admin_password:
         log.warning("PRICEWATCH_ADMIN_PASSWORD is not set; login is disabled until it is")
     if s.scheduler_enabled:
@@ -67,6 +69,8 @@ def create_app() -> FastAPI:
     app.include_router(items_api.router)
     app.include_router(system_api.router)
     app.include_router(extra_api.router)
+    app.include_router(accounts_api.router)
+    app.include_router(purchases_api.router)
 
     @app.get("/healthz")
     def healthz():

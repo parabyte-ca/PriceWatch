@@ -36,7 +36,8 @@ def test_mpn_normalisation():
     ("Sony WH1000XM6/B Over-Ear", {"mpn": "WH-1000XM6/B", "brand": "Sony"}, "mpn", True),
     ("Sony WH-1000XM6/B Noise Cancelling", {}, "mpn", True),
     ("Sony WH-1000XM5/B", {"mpn": "WH1000XM5/B", "brand": "Sony"}, "mpn", False),
-    ("Sony WH-1000XM6 Wireless Noise Cancelling Headphones - Black", {}, "fuzzy", True),
+    ("Sony WH-1000XM6 Wireless Noise Cancelling Headphones - Black", {}, "model", True),
+    ("Sony WH1000XM6 headphones $399.99 YMMV", {}, "model", True),
 ])
 def test_positive_and_negative_identifiers(title, kw, method, accepted):
     spec = XM6 if method != "fuzzy" else ItemSpec(name=XM6.name, brand="Sony")
@@ -102,3 +103,9 @@ def test_model_tokens_ignore_units():
     from pricewatch.services.matching import model_tokens
     assert model_tokens('iPad Air 11-inch 256GB 65" 4K') == set()
     assert model_tokens("LG OLED65C5PUA") == {"OLED65C5PUA"}
+
+
+def test_accessory_with_model_number_not_matched():
+    spec = ItemSpec(name="Sony WH-1000XM6 Wireless Headphones", brand="Sony")
+    assert not match(spec, c("Hard Case for Sony WH-1000XM6 Headphones")).accepted
+    assert not match(spec, c("Replacement ear pads compatible with Sony WH-1000XM6")).accepted

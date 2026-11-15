@@ -153,6 +153,8 @@ export interface Item {
   active: boolean;
   amazon_history_note: string | null;
   search_query: string | null;
+  list_id: number | null;
+  added_by: number | null;
   exclude_refurbished: boolean;
   exclude_open_box: boolean;
   exclude_used: boolean;
