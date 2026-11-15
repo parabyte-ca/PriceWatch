@@ -232,7 +232,7 @@ def test_snooze_and_signed_action(client, pages, quiet):
 def test_bearer_token_auth(client, monkeypatch):
     from pricewatch.config import get_settings
     s = get_settings()
-    token = client.get("/api/token").json()["token"]
+    token = client.post("/api/me/token").json()["token"]
     assert token
     monkeypatch.setattr(s, "auth_mode", "password")
     monkeypatch.setattr(s, "admin_password", "pw")

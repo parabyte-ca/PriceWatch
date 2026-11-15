@@ -9,10 +9,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .. import scheduler
+from ..auth import current_user
 from ..config import get_settings
 from ..db import get_db
 from ..fetch.http import domain_of
-from ..models import Item, Observation, SourceLink
+from ..models import Item, Observation, SourceLink, User
 from ..schemas import (
     DiscoverIn,
     FromUrlIn,
@@ -27,6 +28,7 @@ from ..schemas import (
 )
 from ..serp import available_providers
 from ..services import alerts, settings_store
+from ..services import users as users_svc
 from ..services.checker import (
     CONFIDENCE,
     apply_autofill,
@@ -49,13 +51,31 @@ from ..timeutil import utcnow
 router = APIRouter(prefix="/api", tags=["items"])
 
 
-def _load_item(db: Session, item_id: int) -> Item:
+def _load_item(db: Session, item_id: int, me: User | None = None, write: bool = False) -> Item:
     item = db.scalar(
         select(Item).where(Item.id == item_id).options(selectinload(Item.sources).selectinload(SourceLink.retailer))
     )
-    if item is None:
+    if item is None or (me is not None and not users_svc.can_read(db, me, item)):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Item not found")
+    if write and me is not None and not users_svc.can_write(db, me, item):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "You can view this list but not change it")
     return item
+
+
+def _load_source(db: Session, source_id: int, me: User, write: bool = False) -> SourceLink:
+    src = db.get(SourceLink, source_id)
+    if src is None:
+        raise HTTPException(404, "Source not found")
+    _load_item(db, src.item_id, me, write)
+    return src
+
+
+def _target_list(db: Session, me: User, list_id: int | None) -> int:
+    if list_id is None:
+        return users_svc.default_list(db, me).id
+    if not users_svc.can_write(db, me, list_id):
+        raise HTTPException(403, "You cannot add items to that list")
+    return list_id
 
 
 def source_out(src: SourceLink, province: str, db: Session | None = None) -> SourceOut:
@@ -67,11 +87,11 @@ def source_out(src: SourceLink, province: str, db: Session | None = None) -> Sou
     return out
 
 
-def item_out(db: Session, item: Item, summary: dict, with_sources: bool = False) -> ItemOut:
+def item_out(db: Session, item: Item, summary: dict, with_sources: bool = False, me: User | None = None) -> ItemOut:
     out = ItemOut.model_validate(item, from_attributes=True)
     out.summary = summary
     if with_sources:
-        province = settings_store.get(db, "province")
+        province = settings_store.get(db, "province", me.id if me else None)
         out.sources = [source_out(s, province, db) for s in item.sources]
     else:
         out.sources = None
@@ -79,34 +99,46 @@ def item_out(db: Session, item: Item, summary: dict, with_sources: bool = False)
 
 
 @router.get("/items", response_model=list[ItemOut])
-def list_items(include_inactive: bool = False, db: Session = Depends(get_db)):
-    q = select(Item).options(selectinload(Item.sources).selectinload(SourceLink.retailer))
+def list_items(include_inactive: bool = False, list_id: int | None = None, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    allowed = users_svc.list_ids(db, me)
+    if list_id is not None and list_id not in allowed:
+        raise HTTPException(404, "List not found")
+    q = select(Item).options(selectinload(Item.sources).selectinload(SourceLink.retailer)) \
+        .where(Item.list_id.in_([list_id] if list_id is not None else allowed))
     if not include_inactive:
         q = q.where(Item.active.is_(True))
     items = list(db.scalars(q.order_by(Item.priority, Item.name)).all())
-    summaries = summarize_items(db, items)
+    summaries = summarize_items(db, items, me.id)
     return [item_out(db, i, summaries[i.id]) for i in items]
 
 
 @router.post("/items", response_model=ItemOut, status_code=201)
-def create_item(body: ItemCreate, db: Session = Depends(get_db)):
-    item = Item(**body.model_dump())
+def create_item(body: ItemCreate, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    data = body.model_dump()
+    data["list_id"] = _target_list(db, me, data.pop("list_id", None))
+    item = Item(**data, added_by=me.id)
     db.add(item)
     db.commit()
     item = _load_item(db, item.id)
-    return item_out(db, item, summarize_items(db, [item])[item.id], with_sources=True)
+    return item_out(db, item, summarize_items(db, [item], me.id)[item.id], with_sources=True, me=me)
 
 
 @router.get("/items/{item_id}", response_model=ItemOut)
-def get_item(item_id: int, db: Session = Depends(get_db)):
-    item = _load_item(db, item_id)
-    return item_out(db, item, summarize_items(db, [item])[item.id], with_sources=True)
+def get_item(item_id: int, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me)
+    return item_out(db, item, summarize_items(db, [item], me.id)[item.id], with_sources=True, me=me)
 
 
 @router.patch("/items/{item_id}", response_model=ItemOut)
-def update_item(item_id: int, body: ItemUpdate, db: Session = Depends(get_db)):
-    item = _load_item(db, item_id)
+def update_item(item_id: int, body: ItemUpdate, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me, write=True)
     changes = body.model_dump(exclude_unset=True)
+    if "list_id" in changes:
+        changes["list_id"] = _target_list(db, me, changes["list_id"])
     for key, value in changes.items():
         setattr(item, key, value)
     if "hot" in changes:
@@ -115,22 +147,24 @@ def update_item(item_id: int, body: ItemUpdate, db: Session = Depends(get_db)):
             if src.next_check_at and src.next_check_at > utcnow() + timedelta(minutes=60):
                 src.next_check_at = utcnow()
     db.commit()
-    item = _load_item(db, item_id)
-    summary = summarize_items(db, [item])[item.id]
+    item = _load_item(db, item_id, me)
+    summary = summarize_items(db, [item], me.id)[item.id]
     if "target_price_cents" in changes or "max_price_cents" in changes:
         alerts.evaluate_item(db, item, summary)
-    return item_out(db, item, summary, with_sources=True)
+    return item_out(db, item, summary, with_sources=True, me=me)
 
 
 @router.delete("/items/{item_id}", status_code=204)
-def delete_item(item_id: int, db: Session = Depends(get_db)):
-    item = _load_item(db, item_id)
+def delete_item(item_id: int, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me, write=True)
     db.delete(item)
     db.commit()
 
 
 @router.post("/preview")
-async def preview(body: UrlIn, db: Session = Depends(get_db)):
+async def preview(body: UrlIn, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
     url = str(body.url)
     retailer = get_or_create_retailer(db, url)
     db.commit()
@@ -185,15 +219,18 @@ def _add_source(db: Session, item: Item, url: str, fetch_mode: str | None = None
 
 
 @router.post("/items/from-url", response_model=ItemOut, status_code=201)
-async def create_from_url(body: FromUrlIn, db: Session = Depends(get_db)):
+async def create_from_url(body: FromUrlIn, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
     item = await create_item_from_url(db, str(body.url), name=body.name, target=body.target_price_cents,
-                                      hot=body.hot, priority=body.priority)
+                                      hot=body.hot, priority=body.priority, user=me,
+                                      list_id=_target_list(db, me, body.list_id))
     item = _load_item(db, item.id)
-    return item_out(db, item, summarize_items(db, [item])[item.id], with_sources=True)
+    return item_out(db, item, summarize_items(db, [item], me.id)[item.id], with_sources=True, me=me)
 
 
 async def create_item_from_url(db: Session, raw_url: str, *, name: str | None = None, target: int | None = None,
-                               hot: bool = False, priority: int = 3, fetch_now: bool = True) -> Item:
+                               hot: bool = False, priority: int = 3, fetch_now: bool = True,
+                               user: User | None = None, list_id: int | None = None) -> Item:
     """Create an item with one source. Fetches immediately (cached from preview) unless fetch_now is False,
     in which case the first scheduled check fills in the details (autofill)."""
     url = normalize_url(raw_url)
@@ -202,7 +239,8 @@ async def create_item_from_url(db: Session, raw_url: str, *, name: str | None = 
     mode = retailer.fetch_mode
     if not fetch_now or mode in ("keepa", "manual", "changedetection"):
         item = Item(name=(name or f"{retailer.name}: {url.split('/', 3)[-1][:120]}")[:300], target_price_cents=target,
-                    hot=hot, priority=priority, autofill=not name)
+                    hot=hot, priority=priority, autofill=not name, list_id=list_id,
+                    added_by=user.id if user else None)
         db.add(item)
         db.flush()
         src = _add_source(db, item, url)
@@ -214,7 +252,8 @@ async def create_item_from_url(db: Session, raw_url: str, *, name: str | None = 
         return item
     result, parsed, method = await fetch_and_parse(url, retailer, mode, use_cache=True)
     item = Item(name=(name or (parsed.name if parsed else None) or domain_of(url))[:300],
-                target_price_cents=target, hot=hot, priority=priority)
+                target_price_cents=target, hot=hot, priority=priority, list_id=list_id,
+                added_by=user.id if user else None)
     if parsed:
         apply_autofill(item, None, parsed.brand, parsed.mpn, parsed.gtin, parsed.image)
     db.add(item)
@@ -242,15 +281,17 @@ async def create_item_from_url(db: Session, raw_url: str, *, name: str | None = 
 
 
 @router.get("/discovery/providers")
-def discovery_providers(db: Session = Depends(get_db)):
+def discovery_providers(db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
     limit = int(settings_store.get(db, "serp_monthly_limit") or 0)
     return {"providers": [{"name": name, "used_this_month": month_usage(db, name), "limit": limit}
                           for name in available_providers()]}
 
 
 @router.post("/items/{item_id}/discover")
-async def discover_item(item_id: int, body: DiscoverIn | None = None, db: Session = Depends(get_db)):
-    item = _load_item(db, item_id)
+async def discover_item(item_id: int, body: DiscoverIn | None = None, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me, write=True)
     body = body or DiscoverIn()
     try:
         return await discover(db, item, provider_name=body.provider, force=body.force)
@@ -259,56 +300,56 @@ async def discover_item(item_id: int, body: DiscoverIn | None = None, db: Sessio
 
 
 @router.post("/items/{item_id}/sources", response_model=SourceOut, status_code=201)
-def add_source(item_id: int, body: SourceCreate, db: Session = Depends(get_db)):
-    item = _load_item(db, item_id)
+def add_source(item_id: int, body: SourceCreate, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me, write=True)
     src = _add_source(db, item, str(body.url), body.fetch_mode)
     db.commit()
-    return source_out(src, settings_store.get(db, "province"), db)
+    return source_out(src, settings_store.get(db, "province", me.id), db)
 
 
 @router.patch("/sources/{source_id}", response_model=SourceOut)
-def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_db)):
-    src = db.get(SourceLink, source_id)
-    if src is None:
-        raise HTTPException(404, "Source not found")
+def update_source(source_id: int, body: SourceUpdate, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    src = _load_source(db, source_id, me, write=True)
     for key, value in body.model_dump(exclude_unset=True).items():
         setattr(src, key, value)
     if src.status == "confirmed" and src.next_check_at is None:
         src.next_check_at = utcnow()
     db.commit()
-    return source_out(src, settings_store.get(db, "province"), db)
+    return source_out(src, settings_store.get(db, "province", me.id), db)
 
 
 @router.delete("/sources/{source_id}", status_code=204)
-def delete_source(source_id: int, db: Session = Depends(get_db)):
-    src = db.get(SourceLink, source_id)
-    if src is None:
-        raise HTTPException(404, "Source not found")
+def delete_source(source_id: int, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    src = _load_source(db, source_id, me, write=True)
     db.delete(src)
     db.commit()
 
 
 @router.post("/sources/{source_id}/check")
-async def check_now(source_id: int, db: Session = Depends(get_db)):
-    src = db.get(SourceLink, source_id)
-    if src is None:
-        raise HTTPException(404, "Source not found")
+async def check_now(source_id: int, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    _load_source(db, source_id, me, write=True)
     db.close()
     outcome = await check_source(source_id)
     return {"source_id": source_id, "outcome": outcome}
 
 
 @router.post("/items/{item_id}/check", status_code=202)
-async def check_item(item_id: int, db: Session = Depends(get_db)):
-    item = _load_item(db, item_id)
+async def check_item(item_id: int, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me, write=True)
     ids = [s.id for s in item.sources if s.status == "confirmed" and not s.url.startswith("manual://")]
     queued = [sid for sid in ids if scheduler.dispatch(sid)]
     return {"queued": queued}
 
 
 @router.post("/items/{item_id}/manual", response_model=SourceOut, status_code=201)
-def manual_price(item_id: int, body: ManualPriceIn, db: Session = Depends(get_db)):
-    item = _load_item(db, item_id)
+def manual_price(item_id: int, body: ManualPriceIn, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me, write=True)
     slug = re.sub(r"[^a-z0-9]+", "-", body.store.lower()).strip("-") or "store"
     url = body.url or f"manual://{slug}"
     src = db.scalar(select(SourceLink).where(SourceLink.item_id == item.id, SourceLink.url == url))
@@ -328,12 +369,13 @@ def manual_price(item_id: int, body: ManualPriceIn, db: Session = Depends(get_db
         src.match_reasons = {**(src.match_reasons or {}), "last_proof": body.proof[:2000]}
     db.commit()
     run_alerts(db, src, previous)
-    return source_out(src, settings_store.get(db, "province"), db)
+    return source_out(src, settings_store.get(db, "province", me.id), db)
 
 
 @router.get("/items/{item_id}/history")
-def history(item_id: int, days: int = 120, db: Session = Depends(get_db)):
-    item = _load_item(db, item_id)
+def history(item_id: int, days: int = 120, db: Session = Depends(get_db),
+        me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me)
     since = utcnow() - timedelta(days=days)
     rows = db.execute(
         select(Observation.source_link_id, Observation.observed_at, Observation.price_cents,

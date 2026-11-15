@@ -38,6 +38,7 @@ class ItemBase(BaseModel):
     exclude_variants: bool = True
     amazon_history_note: str | None = None
     search_query: str | None = Field(default=None, max_length=300)
+    list_id: int | None = None
 
 
 class ItemCreate(ItemBase):
@@ -68,6 +69,7 @@ class ItemUpdate(BaseModel):
     exclude_variants: bool | None = None
     amazon_history_note: str | None = None
     search_query: str | None = Field(default=None, max_length=300)
+    list_id: int | None = None
 
 
 class SourceOut(BaseModel):
@@ -105,6 +107,7 @@ class SourceOut(BaseModel):
 class ItemOut(ItemBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    added_by: int | None = None
     created_at: UTCDateTime
     updated_at: UTCDateTime
     summary: dict = {}
@@ -117,6 +120,7 @@ class UrlIn(BaseModel):
 
 class FromUrlIn(BaseModel):
     url: HttpUrl
+    list_id: int | None = None
     name: str | None = None
     target_price_cents: int | None = Field(default=None, ge=0)
     hot: bool = False

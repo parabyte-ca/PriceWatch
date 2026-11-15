@@ -82,7 +82,7 @@ def test_ntfy_payload_has_actions(db_session, monkeypatch):
     assert labels == ["Bought", "Snooze 24h", "Raise target"]
     token = seen["actions"][1]["url"].rsplit("/", 1)[-1]
     from urllib.parse import unquote
-    assert alerts.read_action_token(unquote(token)) == (7, "snooze")
+    assert alerts.read_action_token(unquote(token))[:2] == (7, "snooze")
 
 
 def test_digest_lists_items_and_pending(db_session):

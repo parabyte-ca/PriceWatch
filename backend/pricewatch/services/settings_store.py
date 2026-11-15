@@ -3,7 +3,7 @@
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
-from ..models import SettingKV
+from ..models import SettingKV, User, UserSetting
 
 DEFAULTS: dict = {
     "province": "ON",
@@ -38,41 +38,72 @@ DEFAULTS: dict = {
     "digest_time_blackfriday": "19:30",
     "my_best_buy_member": False,
     "tax_overrides": {},
-    "api_token": "",
 }
 
-SECRET_KEYS = {"notify_urls", "api_token"}
+SECRET_KEYS = {"notify_urls"}
+
+# Per-person settings (each household member has their own); everything else is household-wide.
+USER_KEYS = {
+    "province", "target_basis", "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end",
+    "target_bypasses_quiet_hours", "notify_urls", "alert_target", "alert_drop", "alert_drop_pct",
+    "alert_all_time_low", "alert_back_in_stock", "alert_source_failing", "alert_domain_blocked",
+    "digest_enabled", "digest_time", "digest_time_blackfriday", "my_best_buy_member",
+}
 
 
-def get_all(db: Session) -> dict:
+def _admin_id(db: Session) -> int | None:
+    return db.query(User.id).filter(User.role == "admin").order_by(User.id).limit(1).scalar()
+
+
+def get_all(db: Session, user_id: int | None = None) -> dict:
+    """Defaults, then household settings, then the person's own settings (admin when no user is given)."""
     values = dict(DEFAULTS)
     for row in db.query(SettingKV).all():
-        values[row.key] = row.value
+        if row.key in DEFAULTS:
+            values[row.key] = row.value
+    uid = user_id if user_id is not None else _admin_id(db)
+    if uid is not None:
+        for row in db.query(UserSetting).filter(UserSetting.user_id == uid).all():
+            if row.key in USER_KEYS:
+                values[row.key] = row.value
     return values
 
 
-def get(db: Session, key: str):
+def get(db: Session, key: str, user_id: int | None = None):
+    if key in USER_KEYS:
+        return get_all(db, user_id).get(key)
     row = db.get(SettingKV, key)
     return row.value if row is not None else DEFAULTS.get(key)
 
 
-def update(db: Session, changes: dict) -> dict:
+def update(db: Session, changes: dict, user_id: int | None = None) -> dict:
+    uid = user_id if user_id is not None else _admin_id(db)
     for key, value in changes.items():
         if key not in DEFAULTS:
             raise KeyError(key)
+        if key in USER_KEYS and uid is not None:
+            row = db.get(UserSetting, (uid, key))
+            if row is None:
+                db.add(UserSetting(user_id=uid, key=key, value=value))
+            else:
+                row.value = value
+            continue
         row = db.get(SettingKV, key)
         if row is None:
             db.add(SettingKV(key=key, value=value))
         else:
             row.value = value
     db.commit()
-    return get_all(db)
+    return get_all(db, uid)
 
 
-def notify_urls(db: Session) -> list[str]:
-    urls = [u for u in (get(db, "notify_urls") or []) if u]
-    env = [u.strip() for u in get_settings().notify_urls.split(",") if u.strip()]
-    return list(dict.fromkeys(urls + env))
+def notify_urls(db: Session, user_id: int | None = None) -> list[str]:
+    """The person's own URLs. URLs from .env belong to the admin (server owner)."""
+    uid = user_id if user_id is not None else _admin_id(db)
+    urls = [u for u in (get(db, "notify_urls", uid) or []) if u]
+    if uid is None or uid == _admin_id(db):
+        urls += [u.strip() for u in get_settings().notify_urls.split(",") if u.strip()]
+    return list(dict.fromkeys(urls))
 
 
 def mask_url(url: str) -> str:
@@ -87,8 +118,6 @@ def mask_url(url: str) -> str:
 def public_view(values: dict) -> dict:
     out = dict(values)
     out["notify_urls"] = [mask_url(u) for u in values.get("notify_urls") or []]
-    token = values.get("api_token") or ""
-    out["api_token"] = f"{token[:4]}...{token[-4:]}" if token else ""
     out["env_notify_urls"] = [
         mask_url(u.strip()) for u in get_settings().notify_urls.split(",") if u.strip()
     ]
