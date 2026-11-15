@@ -12,8 +12,8 @@ there is history to compare against.
 ## Features
 - Price protection: record a purchase ("Bought") and PriceWatch keeps checking that store through the protection window (Costco 30 days; Best Buy's Black Friday Price Guarantee on badged items; or the days you enter). A claimable drop sends an instant alert and saves a proof package (page snapshot, SHA-256, UTC and local timestamps, parsed price) you can download as a zip
 - RedFlagDeals Hot Deals feed every 15 minutes: threads are matched to everyone's items by model number or title, linked to stores you already track, duplicate threads collapse into one alert, and a tracked store is re-checked right away. Threads are hints, never prices
-- Household accounts: each person has their own login, lists, alert rules, notification URLs, quiet hours, province, snoozes and daily digest; prices are fetched once for everyone
-- Shared lists: the owner creates a single-use friend code (expires in 7 days, can edit or view only); the other person enters it on the Lists page. Leaving or removing someone never deletes price history
+- Household accounts for any number of people: each person has their own login, lists, alert rules, notification URLs, quiet hours, province, snoozes and daily digest; prices are fetched once for everyone
+- Shared lists with any number of members: the owner creates a single-use friend code per person (expires in 7 days, can edit or view only); the other person enters it on the Lists page. Leaving or removing someone never deletes price history
 - Wishlist with target and maximum prices, priority, hot items (every 2 hours; every 30 minutes for the top 25 in Black Friday mode), notes
 - Buy rule: BUY at or within 2% of the seasonal low (lowest landed price since Oct 1 or 90 days) or at your target; BUY + PROTECT within 5% when the retailer's price protection covers the rest of the event; otherwise WAIT, with a history confidence (LOW under 14 days, MEDIUM, HIGH 60+). LOW history never triggers a seasonal BUY
 - Black Friday board: one phone-friendly list sorted BUY, BUY + PROTECT, WAIT
