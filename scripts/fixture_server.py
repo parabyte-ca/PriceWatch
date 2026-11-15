@@ -17,7 +17,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         if self.path == "/received":
             return self._send(200, json.dumps(RECEIVED).encode(), "application/json")
         path = (ROOT / self.path.lstrip("/").split("?")[0]).resolve()
@@ -25,7 +25,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, path.read_bytes())
         return self._send(404, b"not found")
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         length = int(self.headers.get("Content-Length", 0))
         raw = self.rfile.read(length).decode(errors="replace")
         try:
