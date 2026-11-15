@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/api.ts","./src/main.tsx","./src/components/Badge.tsx","./src/pages/AddItem.tsx","./src/pages/ItemDetail.tsx","./src/pages/Login.tsx","./src/pages/Settings.tsx","./src/pages/System.tsx","./src/pages/Wishlist.tsx"],"version":"5.9.3"}

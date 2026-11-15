@@ -16,9 +16,9 @@ def backup(dest: Path | None = None, keep: int = 14) -> Path:
     dest = dest or backups / f"pricewatch-{datetime.now():%Y%m%d-%H%M%S}.db"
     with sqlite3.connect(src) as source, sqlite3.connect(dest) as target:
         source.backup(target)
-    old = sorted(backups.glob("pricewatch-*.db"))[:-keep]
-    for path in old:
-        path.unlink()
+    for pattern in ("pricewatch-*.db", "pre-update-*.db"):
+        for path in sorted(backups.glob(pattern))[:-keep]:
+            path.unlink()
     return dest
 
 

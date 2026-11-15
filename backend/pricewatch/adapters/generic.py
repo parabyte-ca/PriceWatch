@@ -102,20 +102,25 @@ def parse_jsonld(soup: BeautifulSoup) -> ParsedProduct | None:
     for prod in products:
         offers: list[dict] = []
         for off in _as_list(prod.get("offers")):
-            if isinstance(off, dict):
-                offers.append(off)
-                offers.extend(o for o in _as_list(off.get("offers")) if isinstance(o, dict))
+            if not isinstance(off, dict):
+                continue
+            subs = [o for o in _as_list(off.get("offers")) if isinstance(o, dict)]
+            # prefer concrete offers over the AggregateOffer summary when both exist
+            offers.extend(subs if any(_offer_price(o)[0] for o in subs) else [off])
         if not offers:
             for variant in _as_list(prod.get("hasVariant")):
                 if isinstance(variant, dict):
                     offers.extend(o for o in _as_list(variant.get("offers")) if isinstance(o, dict))
         best: tuple[int, int | None, dict] | None = None
+        best_key: tuple[int, int] | None = None
         for off in offers:
             price, was = _offer_price(off)
             if price is None or price <= 0:
                 continue
-            if best is None or price < best[0]:
-                best = (price, was, off)
+            # lowest in-stock (or unknown stock) offer first, then lowest out-of-stock offer
+            key = (1 if parse_availability(off.get("availability")) is False else 0, price)
+            if best_key is None or key < best_key:
+                best, best_key = (price, was, off), key
         result = ParsedProduct(
             name=_text(prod.get("name")),
             brand=_text(prod.get("brand")),

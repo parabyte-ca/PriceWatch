@@ -1,0 +1,50 @@
+# PriceWatch CA. Settings live in .env (created by setup.sh from .env.example).
+name: pricewatch
+
+services:
+  pricewatch:
+    image: ${PRICEWATCH_IMAGE:-ghcr.io/parabyte-ca/pricewatch}:${PRICEWATCH_VERSION:-latest}
+    build:
+      context: .
+      args:
+        VERSION: ${PRICEWATCH_VERSION:-0.0.0}
+    container_name: pricewatch
+    restart: unless-stopped
+    env_file: ${PRICEWATCH_ENV_FILE:-.env}
+    environment:
+      PRICEWATCH_DATA_DIR: /data
+      PRICEWATCH_PORT: "8086"
+      PRICEWATCH_BROWSER_WS: ws://pricewatch-browser:3000/
+    ports:
+      - "${PRICEWATCH_HOST_PORT:-8086}:8086"
+    volumes:
+      - ${PRICEWATCH_DATA_PATH:-./data}:/data
+    depends_on:
+      - browser
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  browser:
+    # Playwright browser server; the version must match the playwright package in backend/pyproject.toml.
+    image: parabyte-ca/pricewatch-browser:1.65.1
+    build:
+      context: ./browser
+    container_name: pricewatch-browser
+    restart: unless-stopped
+    init: true
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "3000"
+    mem_limit: 1g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
