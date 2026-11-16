@@ -449,6 +449,7 @@ class MarketOffer(Base):
     seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     domain: Mapped[str | None] = mapped_column(String(120))  # the known Canadian store, when recognised
     kind: Mapped[str] = mapped_column(String(20), default="store")  # store | marketplace | bundle | other
+    local_note: Mapped[str | None] = mapped_column(String(80))  # "In stock nearby", "Pick up today"
 
 
 class ListingFeedback(Base):

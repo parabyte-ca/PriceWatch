@@ -4,7 +4,7 @@ import { api, Item, money, toCents, toDollars } from "../api";
 import BarcodeScan from "../components/BarcodeScan";
 import { useSession } from "../session";
 
-interface FindOffer { merchant: string; title: string; url: string; store_link: boolean; price_cents: number;
+interface FindOffer { local?: string | null; merchant: string; title: string; url: string; store_link: boolean; price_cents: number;
   shipping_cents: number | null; landed_cents: number; kind: string; domain: string | null; confidence: number | null; method: string }
 interface FindResult {
   query: string; provider: string | null; cached: boolean; notes: string[];
@@ -36,7 +36,7 @@ export default function AddItem() {
 
   const [stage, setStage] = useState("");
   const STAGE_TEXT: Record<string, string> = {
-    product: "Working out the product…", search: "Found stores, looking for more…",
+    photo: "Reading the photo…", product: "Working out the product…", search: "Found stores, looking for more…",
     stores: "Opening store lists…", claude: "Asking Claude about the rest…", done: "",
   };
   const run = (text: string, force = false) => {
@@ -79,6 +79,23 @@ export default function AddItem() {
     }
   };
 
+  const photo = async (file: File) => {
+    setBusy("find"); setError(""); setStage("photo");
+    try {
+      const bmp = await createImageBitmap(file);
+      const scale = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+      canvas.getContext("2d")?.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+      const b64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+      const r = await api<{ found: boolean; q: string | null; barcode: string | null }>("/api/find/photo", { method: "POST", json: { image_b64: b64 } });
+      if (!r.found || !r.q) { setError("Could not tell what product that is. Try a clearer photo of the front of the box, or type its name."); setBusy(""); return; }
+      setQ(r.q);
+      run(r.q);
+    } catch (e) {
+      setError((e as Error).message); setBusy("");
+    }
+  };
   const notThis = (o: FindOffer) => {
     if (!res) return;
     api("/api/feedback/not-this-product", { method: "POST", json: { url: o.url, query: res.query, merchant: o.merchant } }).catch(() => {});
@@ -98,6 +115,10 @@ export default function AddItem() {
             placeholder="Name, store link or barcode, e.g. Nintendo Switch 2" aria-label="Product" />
           <button className="btn-primary" disabled={!!busy || !q.trim()}>{busy === "find" ? "Searching…" : "Compare"}</button>
         </div>
+        <label className="btn-ghost w-full cursor-pointer text-sm">
+          📷 Take a photo of the product or its box
+          <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) void photo(f); }} />
+        </label>
         <details className="text-sm">
           <summary className="cursor-pointer text-slate-500">Scan a barcode with the camera</summary>
           <div className="mt-2"><BarcodeScan onPick={(_n, _b, code) => { setQ(code); run(code); }} /></div>
@@ -138,6 +159,7 @@ export default function AddItem() {
                   <div className="min-w-0 flex-1">
                     <a href={o.url} target="_blank" rel="noreferrer" className={`font-medium hover:underline ${n === 0 ? "text-green-700 dark:text-green-400" : ""}`}>{o.merchant}</a>
                     <div className="truncate text-xs text-slate-500" title={o.title}>{o.title}</div>
+                    {o.local && <div className="text-xs text-green-700 dark:text-green-400">📍 {o.local}</div>}
                   </div>
                   <div className="shrink-0 text-right">
                     <div className="font-semibold">{money(o.price_cents)}</div>

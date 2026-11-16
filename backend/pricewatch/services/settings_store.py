@@ -50,6 +50,7 @@ DEFAULTS: dict = {
     "deal_feed_threshold": 82.0,
     "flyers_enabled": False,
     "postal_code": "",
+    "shopping_location": "",  # e.g. "Ottawa, Ontario, Canada": search results include nearby-store stock
     "alert_flyer": False,
     "weekly_report_enabled": True,
     "email_import_enabled": False,

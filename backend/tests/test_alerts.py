@@ -79,10 +79,32 @@ def test_ntfy_payload_has_actions(db_session, monkeypatch):
         alerts.send_ntfy(alerts.parse_ntfy("ntfys://ntfy.sh/t"), alert, c)
     assert seen["topic"] == "t" and seen["click"] == "https://shop.ca/x"
     labels = [a["label"] for a in seen["actions"]]
-    assert labels == ["Bought", "Snooze 24h", "Raise target"]
-    token = seen["actions"][1]["url"].rsplit("/", 1)[-1]
+    assert labels == ["Open store", "Bought", "Snooze 24h"]
+    assert seen["actions"][0]["url"] == "https://shop.ca/x" and seen["actions"][1]["method"] == "POST"
     from urllib.parse import unquote
+    token = seen["actions"][2]["url"].rsplit("/", 1)[-1]
     assert alerts.read_action_token(unquote(token))[:2] == (7, "snooze")
+    token = seen["actions"][1]["url"].rsplit("/", 1)[-1]
+    assert alerts.read_action_token(unquote(token))[:2] == (7, "bought")
+
+
+def test_one_tap_bought_records_the_purchase(client, db_session):
+    from pricewatch.models import Purchase, SourceLink
+    from pricewatch.services.retailers import get_or_create_retailer
+
+    item = client.post("/api/items", json={"name": "Nintendo Switch 2"}).json()
+    r = get_or_create_retailer(db_session, "https://www.costco.ca/x")
+    db_session.add(SourceLink(item_id=item["id"], retailer_id=r.id, url="https://www.costco.ca/x", status="confirmed",
+                              last_price_cents=59999))
+    db_session.commit()
+    token = alerts.action_token(item["id"], "bought", None)
+    page = client.get(f"/api/actions/{token}")
+    assert "Yes, I bought it" in page.text and db_session.query(Purchase).count() == 0  # a preview records nothing
+    done = client.post(f"/api/actions/{token}")
+    assert "Recorded" in done.text and "599.99" in done.text
+    p = db_session.query(Purchase).one()
+    assert p.price_cents == 59999
+    assert "Already recorded" in client.post(f"/api/actions/{token}").text
 
 
 def test_digest_lists_items_and_pending(db_session):

@@ -1,5 +1,6 @@
 """Settings, retailers, alerts, system health."""
 
+import re
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -47,6 +48,11 @@ def patch_settings(body: dict, db: Session = Depends(get_db), me: User = Depends
         if changed:
             raise HTTPException(403, f"Only the household admin can change: {', '.join(sorted(changed))}")
         body = {k: v for k, v in body.items() if k in settings_store.USER_KEYS}
+    if "shopping_location" in body:
+        loc = " ".join(str(body["shopping_location"] or "").split())[:100]
+        if loc and not re.fullmatch(r"[A-Za-z0-9 .,'-]+", loc):
+            raise HTTPException(422, "Use a place name like: Ottawa, Ontario, Canada")
+        body["shopping_location"] = loc
     if "province" in body and str(body["province"]).upper() not in PROVINCE_TAX:
         raise HTTPException(422, "Unknown province")
     if "province" in body:
@@ -125,6 +131,14 @@ def update_retailer(retailer_id: int, body: RetailerUpdate, db: Session = Depend
         setattr(r, key, value)
     db.commit()
     return r
+
+
+@router.get("/admin/health")
+def health_check(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Failing stores and sources, items without prices, search and Claude budgets, the forum feed and backups."""
+    from ..services import health
+
+    return health.report(db)
 
 
 @router.get("/system")

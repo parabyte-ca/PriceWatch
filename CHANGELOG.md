@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0] - 2026-11-16
+### Added
+- Photo search on Add: take a photo of a product or its box and Claude reads what it is (and the barcode number when visible), then the comparison runs. The photo is not stored
+- Alerts you can act on: ntfy and app notifications have Open store (the store's page), Bought (records the purchase at the cheapest watched store's price in one tap, so price protection starts) and Snooze. Opening the Bought link without pressing the button records nothing
+- In-store stock near you: set your city (Settings, "Your city, for in-store stock") and search results show Google's "In stock nearby" and "Pick up today" notes
+- eBay Canada through the official Browse API (optional `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET`): new, fixed-price listings appear with the marketplace sellers for reference
+- Health check (System page, and a line in the admin's weekly report): stores whose checks mostly fail, watched stores without a fresh price, items without any price, search and Claude budgets, the forum feed and backups
+
 ## [1.1.0] - 2026-11-16
 ### Added
 - Deals by category on Home: follow kinds of products ("TVs", "kitchen accessories", "3D printers", "women's clothing"; presets included) and PriceWatch collects their deals. New RedFlagDeals threads are sorted into your categories by Claude Haiku (titles only; by the category's words without a key), and a Google Shopping "on sale" search runs per category daily in Black Friday week and Boxing Week (weekly otherwise), keeping listings at least 20% under their was-price. Each deal has Watch (opens Add with it) and Hide

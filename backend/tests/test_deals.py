@@ -75,3 +75,13 @@ def test_todays_drops(client, db_session):
     db_session.commit()
     drops = client.get("/api/deals/home").json()["drops"]
     assert drops[0]["item"] == "Nintendo Switch 2" and drops[0]["was_cents"] == 69999 and drops[0]["drop_pct"] == 14.3
+
+
+def test_health_check(client, db_session):
+    client.post("/api/items", json={"name": "LEGO Titanic"})
+    r = client.get("/api/admin/health").json()
+    assert r["ok"] is False and any("no price yet" in i for i in r["issues"])
+    assert "LEGO Titanic" in r["items_without_price"]
+    from pricewatch.services import health
+
+    assert health.summary_line(db_session).startswith("Health: ")

@@ -3,7 +3,7 @@
 import re
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -82,7 +82,7 @@ def unsnooze(item_id: int, db: Session = Depends(get_db), me: User = Depends(cur
 
 
 @router.api_route("/actions/{token}", methods=["GET", "POST"], response_class=HTMLResponse)
-def action(token: str, db: Session = Depends(get_db)):
+def action(token: str, request: Request, db: Session = Depends(get_db)):
     """Signed one-tap actions from notifications (no login needed; links expire after 7 days)."""
     parsed = alerts.read_action_token(token)
     if not parsed:
@@ -95,7 +95,39 @@ def action(token: str, db: Session = Depends(get_db)):
     if act == "snooze":
         set_snooze(db, user_id, item_id, utcnow() + timedelta(hours=24))
         return HTMLResponse(f"<p>Snoozed your alerts for {item.name} for 24 hours.</p>")
+    if act == "bought":
+        return _bought(db, item, user_id, is_get=request.method == "GET")
     raise HTTPException(400, "Unknown action")
+
+
+def _bought(db: Session, item: Item, user_id: int, *, is_get: bool) -> HTMLResponse:
+    """One tap from a price alert: record the purchase at the cheapest watched store, at its current price.
+
+    The notification button POSTs; opening the link (GET, e.g. a link preview) only shows what would be recorded.
+    """
+    from ..models import Purchase
+    from ..services import protection
+
+    srcs = [s for s in item.sources if s.status == "confirmed" and s.last_price_cents is not None]
+    if not srcs:
+        return HTMLResponse(f"<p>No price is known for {item.name} yet; record it on the item page.</p>", status_code=409)
+    src = min(srcs, key=lambda s: s.last_price_cents)
+    store = src.retailer.name if src.retailer else (src.title or "store")
+    already = db.scalar(select(Purchase.id).where(Purchase.item_id == item.id, Purchase.user_id == user_id,
+                                                  Purchase.purchased_on == utcnow().date()))
+    if already:
+        return HTMLResponse(f"<p>Already recorded: you bought {item.name} today.</p>")
+    from ..services.alerts import money
+
+    if is_get:
+        return HTMLResponse(f"<p>Record buying {item.name} at {store} for {money(src.last_price_cents)}?</p>"
+                            f"<form method=post><button>Yes, I bought it</button></form>")
+    protection.create_purchase(db, user_id=user_id, item=item, src=src, retailer_name=store,
+                               retailer_domain=src.retailer.domain if src.retailer else None,
+                               price_cents=src.last_price_cents, purchased_on=utcnow().date())
+    db.commit()
+    return HTMLResponse(f"<p>Recorded: {item.name} at {store} for {money(src.last_price_cents)}. "
+                        "PriceWatch now watches for a drop you can claim back.</p>")
 
 
 class PolicyUpdate(BaseModel):

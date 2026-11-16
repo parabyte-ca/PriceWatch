@@ -9,7 +9,8 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { title: "PriceWatch", body: event.data ? event.data.text() : "" };
   }
-  const actions = [{ action: "open", title: "Open deal" }];
+  const actions = [{ action: "open", title: "Open store" }];
+  if (data.bought_url) actions.push({ action: "bought", title: "Bought" });
   if (data.snooze_url) actions.push({ action: "snooze", title: "Snooze 7 days" });
   event.waitUntil(
     self.registration.showNotification(data.title || "PriceWatch", {
@@ -27,6 +28,10 @@ self.addEventListener("push", (event) => {
 self.addEventListener("notificationclick", (event) => {
   const data = event.notification.data || {};
   event.notification.close();
+  if (event.action === "bought" && data.bought_url) {
+    event.waitUntil(fetch(data.bought_url, { method: "POST", credentials: "same-origin" }).catch(() => {}));
+    return;
+  }
   if (event.action === "snooze" && data.snooze_url) {
     event.waitUntil(fetch(data.snooze_url, { method: "POST", credentials: "same-origin" }).catch(() => {}));
     return;

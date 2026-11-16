@@ -10,8 +10,9 @@ class SerpApiProvider:
     name = "serpapi"
     endpoint = "https://serpapi.com/search.json"
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, location: str = "Canada") -> None:
         self.api_key = api_key
+        self.location = location  # a city gives "in stock nearby" and pickup notes in results
 
     async def search(self, query: str, client: httpx.AsyncClient) -> list[Candidate]:
         params = {
@@ -20,7 +21,7 @@ class SerpApiProvider:
             "gl": "ca",
             "hl": "en",
             "google_domain": "google.ca",
-            "location": "Canada",
+            "location": self.location or "Canada",
             "api_key": self.api_key,
         }
         try:

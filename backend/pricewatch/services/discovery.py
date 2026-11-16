@@ -131,6 +131,8 @@ async def compare(db: Session, item: Item, provider, *, force: bool = False,
     watching right after a comparison costs no second search.
     """
     cfg = settings_store.get_all(db)
+    if hasattr(provider, "location"):
+        provider.location = cfg.get("shopping_location") or "Canada"
     query = build_query(item)
     candidates, cached = await run_search(db, item if item.id else None, provider, query, force, client)
 
@@ -172,7 +174,8 @@ async def compare(db: Session, item: Item, provider, *, force: bool = False,
             offers.append({"merchant": merchant, "title": cand.title, "price_cents": cand.price_cents,
                            "shipping_cents": cand.shipping_cents, "url": url, "store_link": store_link,
                            "provider": via, "confidence": result.confidence, "domain": domain, "kind": kind,
-                           "method": result.method, "reasons": result.reasons, "ai": ai})
+                           "method": result.method, "reasons": result.reasons, "ai": ai,
+                           "local": (cand.extra or {}).get("local")})
         out.append(row)
         return row
 
@@ -206,6 +209,19 @@ async def compare(db: Session, item: Item, provider, *, force: bool = False,
                 if normalize_url(cand.url) not in wrong:
                     await consider(cand, provider.name)
         await stage("stores")
+
+    # eBay Canada (official API, optional): new fixed-price listings, shown with the marketplace sellers
+    from ..serp.ebay import ebay_provider
+
+    ebay = ebay_provider()
+    if ebay is not None:
+        try:
+            listings, _ = await run_search(db, item if item.id else None, ebay, query, force, client)
+            for cand in listings:
+                if normalize_url(cand.url) not in wrong:
+                    await consider(cand, "ebay")
+        except DiscoveryError as exc:
+            notes.append(f"eBay: {exc}")
 
     # still nothing with a real store link: ask Claude's web search, which returns the stores' own pages
     linked = [r for r in out if _is_merchant_url(r["url"]) and r["accepted"]]
@@ -294,7 +310,7 @@ def save_offers(db: Session, item: Item, offers: list[dict], *, query: str = "")
         row = MarketOffer(item_id=item.id, merchant=o["merchant"][:120], title=(o["title"] or "")[:500],
                           price_cents=o["price_cents"], shipping_cents=o["shipping_cents"], url=o["url"][:1000],
                           store_link=o["store_link"], provider=o["provider"][:30], confidence=o["confidence"],
-                          seen_at=now, domain=o["domain"], kind=o["kind"])
+                          seen_at=now, domain=o["domain"], kind=o["kind"], local_note=o.get("local"))
         db.add(row)
         rows.append(row)
     db.flush()

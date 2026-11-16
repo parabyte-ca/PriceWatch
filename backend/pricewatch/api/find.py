@@ -91,7 +91,7 @@ def _rows(offers: list[dict], cfg: dict) -> list[dict]:
         rows.append({"merchant": o["merchant"], "title": o["title"], "url": o["url"], "store_link": o["store_link"],
                      "price_cents": o["price_cents"], "shipping_cents": o["shipping_cents"],
                      "landed_cents": landed["landed_cents"], "kind": o["kind"], "domain": o["domain"],
-                     "confidence": o["confidence"], "method": o["method"]})
+                     "confidence": o["confidence"], "method": o["method"], "local": o.get("local")})
     return rows
 
 
@@ -250,3 +250,61 @@ def only_this_store(source_id: int, db: Session = Depends(get_db), me: User = De
             s.status = "rejected"
     src.status = "confirmed"
     db.commit()
+
+
+class PhotoIn(BaseModel):
+    image_b64: str = Field(min_length=100, max_length=4_000_000)
+    media_type: str = Field(default="image/jpeg", pattern=r"^image/(jpeg|png|webp)$")
+
+
+class Identified(BaseModel):
+    found: bool
+    name: str
+    brand: str | None
+    model: str | None
+    barcode: str | None
+
+
+@router.post("/find/photo")
+async def find_photo(body: PhotoIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Photo of a product or its box -> what to search for. Claude reads it; the photo is not stored."""
+    import anthropic
+
+    from ..services import claude
+
+    key = claude.api_key()
+    if not key:
+        raise HTTPException(409, "Photo search needs a Claude key (Household admin)")
+    left = claude.budget_left()
+    if left is not None and left < 0.02:
+        raise HTTPException(409, "This month's Claude spending cap is reached")
+    api = anthropic.AsyncAnthropic(api_key=key, timeout=60.0, max_retries=1)
+    try:
+        resp = await api.messages.parse(
+            model=claude.PRICE_MODEL, max_tokens=1000, output_config={"effort": "low"},
+            system="Identify the retail product in the photo (often its box or shelf label) for a price search in "
+                   "Canada: brand, model or product name, and the UPC/EAN digits if a barcode number is readable. "
+                   "If you cannot tell what product it is, set found to false.",
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": body.media_type, "data": body.image_b64}},
+                {"type": "text", "text": "What product is this?"}]}],
+            output_format=Identified)
+        claude.record_spend(claude.cost_usd(claude.PRICE_MODEL, getattr(resp, "usage", None)))
+        got: Identified | None = resp.parsed_output
+    except anthropic.APIStatusError as exc:
+        raise HTTPException(502, f"Claude could not read the photo (HTTP {exc.status_code})") from exc
+    except anthropic.APIConnectionError as exc:
+        raise HTTPException(502, "Could not reach api.anthropic.com") from exc
+    finally:
+        await api.close()
+    if not got or not got.found:
+        return {"found": False, "q": None}
+    barcode = re.sub(r"\D", "", got.barcode or "")
+    name = got.name or ""
+    parts = [got.brand] if got.brand and got.brand.lower() not in name.lower() else []
+    parts.append(name)
+    if got.model and got.model.lower() not in name.lower():
+        parts.append(got.model)
+    q = " ".join(parts)
+    return {"found": True, "q": q.strip() or got.name, "name": got.name, "brand": got.brand, "model": got.model,
+            "barcode": barcode if 8 <= len(barcode) <= 14 else None}

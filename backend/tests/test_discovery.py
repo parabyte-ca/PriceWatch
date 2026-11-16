@@ -298,3 +298,52 @@ def test_find_stream_sends_stages(client, fake):
 
     done = json.loads(body.split("event: done\ndata: ")[1].split("\n")[0])
     assert done["best"]["price_cents"] == 42999
+
+
+def test_nearby_stock_note_and_location(client, monkeypatch):
+    seen = {}
+    rows = {"shopping_results": [
+        {"title": "Nintendo Switch 2 System", "link": "https://www.bestbuy.ca/en-ca/product/switch-2/19000001",
+         "source": "Best Buy", "extracted_price": 629.99, "extensions": ["In stock nearby", "Pick up today"]}]}
+
+    class P(SerpApiProvider):
+        async def search(self, query, client):
+            def handler(req):
+                seen.update(dict(req.url.params))
+                return httpx.Response(200, json=rows)
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+                return await SerpApiProvider.search(self, query, c)
+
+    p = P("k")
+    monkeypatch.setattr(discovery, "get_provider", lambda name=None: p if name in (None, "serpapi") else None)
+    import pricewatch.api.find as find_api
+
+    monkeypatch.setattr(find_api, "get_provider", lambda name=None: p)
+    assert client.patch("/api/settings", json={"shopping_location": "Ottawa, Ontario, Canada"}).status_code == 200
+    r = client.post("/api/find", json={"q": "Nintendo Switch 2 System"}).json()
+    assert seen["location"] == "Ottawa, Ontario, Canada"
+    assert r["best"]["local"] == "In stock nearby"
+    assert client.patch("/api/settings", json={"shopping_location": "<script>"}).status_code == 422
+
+
+async def test_ebay_listings_are_marketplace_rows(monkeypatch):
+    from pricewatch.serp import ebay
+
+    def handler(req):
+        if req.url.path.endswith("/token"):
+            assert req.headers["authorization"].startswith("Basic ")
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 7200})
+        assert req.headers["x-ebay-c-marketplace-id"] == "EBAY_CA" and "conditions:{NEW}" in req.url.params["filter"]
+        return httpx.Response(200, json={"itemSummaries": [
+            {"title": "Nintendo Switch 2 Console", "price": {"value": "649.00", "currency": "CAD"},
+             "itemWebUrl": "https://www.ebay.ca/itm/1", "seller": {"username": "gamer"},
+             "shippingOptions": [{"shippingCost": {"value": "0.00", "currency": "CAD"}}]},
+            {"title": "US listing", "price": {"value": "400", "currency": "USD"}, "itemWebUrl": "https://www.ebay.com/itm/2"}]})
+
+    monkeypatch.setattr(ebay, "_token", None)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        cands = await ebay.EbayProvider("id", "secret").search("Nintendo Switch 2", c)
+    assert [(x.merchant, x.price_cents, x.shipping_cents) for x in cands] == [("eBay - gamer", 64900, 0)]
+    from pricewatch.services.retailers import merchant_kind
+
+    assert merchant_kind(cands[0].merchant) == "marketplace"

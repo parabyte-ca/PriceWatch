@@ -55,6 +55,10 @@ class Settings(BaseSettings):
     brightdata_zone: str = Field(
         default="serp_api1", validation_alias=AliasChoices("BRIGHTDATA_ZONE", "PRICEWATCH_BRIGHTDATA_ZONE"))
 
+    # optional: eBay Browse API (developer.ebay.com application keys) for eBay Canada new listings
+    ebay_client_id: str | None = Field(default=None, validation_alias=AliasChoices("EBAY_CLIENT_ID"))
+    ebay_client_secret: str | None = Field(default=None, validation_alias=AliasChoices("EBAY_CLIENT_SECRET"))
+
     # turn off the private-address guard (only for a local test fixture server)
     allow_private_urls: bool = False
 

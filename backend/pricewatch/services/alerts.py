@@ -99,13 +99,15 @@ def ntfy_actions(alert: Alert) -> list[dict]:
     base = get_settings().public_url.rstrip("/")
     if not base or not alert.item_id:
         return []
-    item_url = f"{base}/items/{alert.item_id}"
-    return [
-        {"action": "view", "label": "Bought", "url": f"{item_url}?action=bought", "clear": True},
+    acts = []
+    if alert.url and alert.url.startswith("http"):
+        acts.append({"action": "view", "label": "Open store", "url": alert.url})
+    return acts + [
+        {"action": "http", "label": "Bought", "method": "POST",
+         "url": f"{base}/api/actions/{quote(action_token(alert.item_id, 'bought', alert.user_id))}", "clear": True},
         {"action": "http", "label": "Snooze 24h", "method": "POST",
          "url": f"{base}/api/actions/{quote(action_token(alert.item_id, 'snooze', alert.user_id))}", "clear": True},
-        {"action": "view", "label": "Raise target", "url": f"{item_url}?action=target"},
-    ]
+    ][:3]  # ntfy shows at most three buttons
 
 
 def send_ntfy(cfg: dict, alert: Alert, client: httpx.Client | None = None) -> None:

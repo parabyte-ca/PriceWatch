@@ -89,6 +89,7 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
                     {o.merchant}
                   </a>
                   <div className="truncate text-xs text-slate-500" title={o.title}>{o.title}</div>
+                  {o.local && <div className="text-xs text-green-700 dark:text-green-400">📍 {o.local}</div>}
                 </div>
                 <div className="shrink-0 text-right">
                   <div className="font-semibold">{money(o.price_cents)}</div>
