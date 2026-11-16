@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.15.1] - 2026-11-16
+### Fixed
+- "Other stores" found results but no store links: Google Shopping now hides the stores' own links. PriceWatch opens the store list of the best matching product (one SerpApi search each, at most two, cached a week) and tracks the stores' own product pages. If that still gives no store link, it asks Claude's web search (when a key is saved)
+- The results list shows store links first; Google-only results are folded away as "prices for reference only"
+- Ask PriceWatch on phones: the question box sat under Android's gesture bar. The panel now fills the screen above the system bars, the box stays above the keyboard, and the app keeps clear of the status and gesture bars when installed
+
 ## [0.15.0] - 2026-11-16
 ### Added
 - Prices from stores that block PriceWatch: when Best Buy, Walmart, Canadian Tire or another store answers PriceWatch's own check with a bot check (HTTP 403) or shows no price, Claude reads the current price instead, using Anthropic's web fetch and web search limited to that one store's site. PriceWatch itself still never tries to get past a bot check. Claude must report a price it actually saw for the exact product (never a guess), and links to other sites are ignored

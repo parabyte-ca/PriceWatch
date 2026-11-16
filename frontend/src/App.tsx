@@ -91,7 +91,7 @@ export default function App() {
 
   return (
     <SessionContext.Provider value={{ user: me.user || null, lists, reloadLists }}>
-    <div className="mx-auto max-w-6xl px-4 pb-24 md:pb-16">
+    <div className="mx-auto max-w-6xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-16">
       {isAdmin && <UpdateBar summary={upd} offline={updOffline} />}
       <header className="flex items-center justify-between gap-2 pt-4">
         <NavLink to="/" className="flex min-w-0 items-center gap-2 text-lg font-bold">

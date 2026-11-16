@@ -188,6 +188,7 @@ export interface DiscoveryResult {
   usage: number;
   limit: number;
   candidates: DiscoveryCandidate[];
+  notes?: string[];
 }
 
 export const EXCLUSIONS = [

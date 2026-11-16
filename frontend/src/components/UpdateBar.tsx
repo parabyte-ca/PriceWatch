@@ -36,7 +36,7 @@ export function UpdateBar({ summary, offline }: { summary: { progress: UpdatePro
   if (!show) return null;
   return (
     <Link to="/system" title={`Updating PriceWatch: ${pct}%`} aria-label={`Update in progress, ${pct}%`}
-      className="fixed inset-x-0 top-0 z-50 block h-[3px] bg-slate-200/80 dark:bg-slate-800/80 print:hidden">
+      className="fixed inset-x-0 top-[env(safe-area-inset-top)] z-50 block h-[3px] bg-slate-200/80 dark:bg-slate-800/80 print:hidden">
       <span className="relative block h-full overflow-hidden bg-gradient-to-r from-red-600 via-amber-500 to-emerald-500 shadow-[0_0_10px_rgba(245,158,11,0.8)] transition-[width] duration-1000 ease-linear"
         style={{ width: `${Math.max(3, pct)}%` }}>
         <span className="absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/70 to-transparent motion-safe:animate-sweep" />

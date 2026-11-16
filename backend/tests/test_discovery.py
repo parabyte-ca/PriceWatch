@@ -121,3 +121,46 @@ def test_strong_matches_are_tracked_at_once(client, fake):
     assert all(c["method"] == "fuzzy" for c in fuzzy)
     src = next(s for s in client.get(f"/api/items/{item['id']}").json()["sources"] if s["url"] == bb["url"])
     assert src["next_check_at"] is not None  # first price check queued
+
+
+GOOGLE_ONLY = {"shopping_results": [
+    {"title": "Nintendo Switch 2 System", "product_link": "https://www.google.ca/shopping/product/111",
+     "immersive_product_page_token": "tok-111", "source": "Walmart.ca", "extracted_price": 679.95},
+    {"title": "Nintendo Switch 2 Dock Set", "product_link": "https://www.google.ca/shopping/product/222",
+     "immersive_product_page_token": "tok-222", "source": "Nintendo", "extracted_price": 154.99},
+]}
+STORES = {"product_results": {"title": "Nintendo Switch 2 System", "stores": [
+    {"name": "Best Buy", "link": "https://www.bestbuy.ca/en-ca/product/nintendo-switch-2/19000001",
+     "extracted_price": 649.99},
+    {"name": "Walmart", "link": "https://www.walmart.ca/en/ip/nintendo-switch-2/6000201", "extracted_price": 679.95},
+]}}
+
+
+def test_google_only_results_open_the_store_list(client, monkeypatch):
+    seen = []
+
+    def handler(req):
+        seen.append(req.url.params["engine"])
+        return httpx.Response(200, json=GOOGLE_ONLY if req.url.params["engine"] == "google_shopping" else STORES)
+
+    real = SerpApiProvider("k")
+
+    class P:
+        name = "serpapi"
+
+        async def search(self, query, client):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+                return await real.search(query, c)
+
+        async def expand(self, token, client):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+                return await real.expand(token, c)
+
+    monkeypatch.setattr(discovery, "get_provider", lambda name=None: P() if name in (None, "serpapi") else None)
+    item = client.post("/api/items", json={"name": "Nintendo Switch 2 System"}).json()
+    body = client.post(f"/api/items/{item['id']}/discover", json={}).json()
+    statuses = {c["url"]: c["status"] for c in body["candidates"]}
+    assert statuses["https://www.bestbuy.ca/en-ca/product/nintendo-switch-2/19000001"] in ("suggested", "confirmed")
+    assert statuses["https://www.walmart.ca/en/ip/nintendo-switch-2/6000201"] in ("suggested", "confirmed")
+    assert seen.count("google_immersive_product") == 1  # only the matching product's store list was opened
+    assert all("token" not in c for c in body["candidates"])

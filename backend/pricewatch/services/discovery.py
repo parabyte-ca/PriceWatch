@@ -1,5 +1,6 @@
 """Candidate discovery through a SERP provider, matched against the item and stored as suggestions."""
 
+import hashlib
 import logging
 from datetime import timedelta
 from urllib.parse import urlsplit
@@ -18,6 +19,17 @@ from .retailers import get_or_create_retailer
 log = logging.getLogger(__name__)
 
 CACHE_DAYS = 7
+EXPAND_MAX = 2  # store-list lookups per discovery (each is one SerpApi search)
+
+
+class _StoreList:
+    """Adapter so a Google product's store list goes through run_search (cache, monthly limit, history)."""
+
+    def __init__(self, provider, token: str) -> None:
+        self.provider, self.token, self.name = provider, token, provider.name
+
+    async def search(self, query: str, client: httpx.AsyncClient) -> list[Candidate]:
+        return await self.provider.expand(self.token, client)
 GOOGLE_HOSTS = ("google.", "googleadservices.", "doubleclick.")
 
 
@@ -108,10 +120,13 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
     use_llm = llm_match.enabled(db)
     out, seen = [], set()
     added = 0
-    for cand in candidates:
+    notes: list[str] = []
+
+    async def consider(cand: Candidate, via: str) -> dict | None:
+        nonlocal added
         url = normalize_url(cand.url)
         if url in seen:
-            continue
+            return None
         seen.add(url)
         result = match(spec, cand, threshold)
         ai = None
@@ -122,7 +137,8 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
                 result.reasons = [*result.reasons, f"Claude: not the same product ({ai['reason']})"]
         row = {"title": cand.title, "url": url, "merchant": cand.merchant, "price_cents": cand.price_cents,
                "confidence": result.confidence, "method": result.method, "accepted": result.accepted,
-               "reasons": result.reasons, "exclusions": result.exclusions, "ai": ai}
+               "reasons": result.reasons, "exclusions": result.exclusions, "ai": ai, "via": via,
+               "token": (cand.extra or {}).get("immersive_token")}
         if not _is_merchant_url(url):
             row["status"] = "no merchant link"
         elif url in existing:
@@ -138,7 +154,7 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
             src = SourceLink(
                 item_id=item.id, retailer_id=retailer.id, url=url, title=cand.title[:500],
                 status="confirmed" if auto else "suggested", match_confidence=result.confidence,
-                match_method=result.method, discovered_via=provider.name,
+                match_method=result.method, discovered_via=via,
                 match_reasons={"reasons": result.reasons, "exclusions": result.exclusions,
                                "serp_price_cents": cand.price_cents, "merchant": cand.merchant,
                                "query": query, "ai": ai},
@@ -151,13 +167,49 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
             added += 1
             row["status"] = "confirmed" if auto else "suggested"
         out.append(row)
+        return row
+
+    for cand in candidates:
+        await consider(cand, provider.name)
+
+    # Google Shopping hides store links behind its own product pages. Open the best matching products' store
+    # lists (one search each, cached) so the stores' own product pages can be tracked.
+    hidden = [r for r in out if r["status"] == "no merchant link" and r["accepted"] and r.get("token")]
+    hidden.sort(key=lambda r: -r["confidence"])
+    if hidden and hasattr(provider, "expand"):
+        for row in hidden[:EXPAND_MAX]:
+            try:
+                stores, _ = await run_search(db, item, _StoreList(provider, row["token"]),
+                                             "stores:" + hashlib.sha1(row["token"].encode()).hexdigest()[:16],
+                                             force, client)
+            except DiscoveryError as exc:
+                notes.append(f"store links: {exc}")
+                break
+            for cand in stores:
+                cand.title = cand.title or row["title"]
+                await consider(cand, provider.name)
+
+    # still nothing with a real store link: ask Claude's web search, which returns the stores' own pages
+    linked = [r for r in out if r["status"] != "no merchant link" and r["accepted"]]
+    if not linked and provider.name != "claude":
+        claude_web = get_provider("claude")
+        if claude_web is not None and claude_web.name == "claude":
+            try:
+                extra, _ = await run_search(db, item, claude_web, query, force, client)
+                for cand in extra:
+                    await consider(cand, "claude")
+            except DiscoveryError as exc:
+                notes.append(f"Claude search: {exc}")
+
+    for r in out:
+        r.pop("token", None)
     db.commit()
     out.sort(key=lambda r: (not r["accepted"], -r["confidence"]))
     log.info("discovery", extra={"item_id": item.id, "provider": provider.name, "cached": cached,
                                  "candidates": len(out), "added": added})
     return {"provider": provider.name, "query": query, "cached": cached, "added": added,
             "usage": month_usage(db, provider.name), "limit": int(cfg["serp_monthly_limit"] or 0),
-            "candidates": out}
+            "candidates": out, "notes": notes}
 
 
 async def barcode_lookup(db: Session, code: str) -> dict:

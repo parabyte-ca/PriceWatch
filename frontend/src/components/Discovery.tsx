@@ -98,27 +98,43 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
         </div>
       )}
 
-      {result && (
-        <details className="text-sm" open={result.added === 0}>
-          <summary className="cursor-pointer text-slate-500">
-            {result.candidates.length} results for "{result.query}" via {result.provider}
-            {result.cached ? " (cached, no search used)" : ""}, {result.added} new suggestions.
-            {result.limit ? ` ${result.usage}/${result.limit} searches used this month.` : ""}
-          </summary>
-          <ul className="mt-2 space-y-1">
-            {result.candidates.map((c) => (
-              <li key={c.url} className="flex gap-2 text-xs">
-                <span className={`w-28 shrink-0 font-medium ${c.accepted ? "text-green-700" : "text-slate-500"}`}>{c.status}</span>
-                <span className="w-16 shrink-0 text-right">{money(c.price_cents)}</span>
-                <span className="min-w-0 flex-1 truncate" title={c.title}>
-                  {c.merchant ? `${c.merchant}: ` : ""}{c.title}
-                  <span className="text-slate-400"> · {[...c.reasons, ...c.exclusions].join("; ")}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      {result && (() => {
+        const linked = result.candidates.filter((c) => c.status !== "no merchant link");
+        const hidden = result.candidates.length - linked.length;
+        const row = (c: DiscoveryResult["candidates"][number]) => (
+          <li key={c.url} className="flex gap-2 text-xs">
+            <span className={`w-24 shrink-0 font-medium ${c.status === "confirmed" || c.status === "suggested" ? "text-green-700" : "text-slate-500"}`}>{c.status}</span>
+            <span className="w-16 shrink-0 text-right">{money(c.price_cents)}</span>
+            {c.status === "no merchant link" ? (
+              <span className="min-w-0 flex-1 truncate" title={c.title}>{c.merchant ? `${c.merchant}: ` : ""}{c.title}</span>
+            ) : (
+              <a href={c.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:underline" title={c.title}>
+                {c.merchant ? `${c.merchant}: ` : ""}{c.title}
+                <span className="text-slate-400"> · {[...c.reasons, ...c.exclusions].join("; ")}</span>
+              </a>
+            )}
+          </li>
+        );
+        return (
+          <details className="text-sm" open={result.added === 0}>
+            <summary className="cursor-pointer text-slate-500">
+              {linked.length} store link{linked.length === 1 ? "" : "s"} for "{result.query}" via {result.provider}
+              {result.cached ? " (cached, no search used)" : ""}, {result.added} new.
+              {result.limit ? ` ${result.usage}/${result.limit} searches used this month.` : ""}
+            </summary>
+            {(result.notes || []).map((n) => <p key={n} className="mt-1 text-xs text-amber-700">{n}</p>)}
+            <ul className="mt-2 space-y-1">{linked.map(row)}</ul>
+            {hidden > 0 && (
+              <details className="mt-2 text-xs">
+                <summary className="cursor-pointer text-slate-500">
+                  {hidden} Google Shopping result{hidden === 1 ? "" : "s"} without a store link (prices for reference only)
+                </summary>
+                <ul className="mt-1 space-y-1">{result.candidates.filter((c) => c.status === "no merchant link").map(row)}</ul>
+              </details>
+            )}
+          </details>
+        );
+      })()}
 
       {rejected.length > 0 && (
         <div className="text-xs">

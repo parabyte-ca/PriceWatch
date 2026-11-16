@@ -46,5 +46,6 @@ def shopping_item_to_candidate(row: dict, provider: str) -> Candidate | None:
         condition=condition,
         shipping_cents=shipping,
         provider=provider,
-        extra={"product_id": row.get("product_id"), "google_link": row.get("product_link")},
+        extra={"product_id": row.get("product_id"), "google_link": row.get("product_link"),
+               "immersive_token": row.get("immersive_product_page_token")},
     )
