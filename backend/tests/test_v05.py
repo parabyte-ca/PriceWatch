@@ -46,7 +46,7 @@ def test_costco_purchase_protected_and_drop_claimable(client, pages, sent, nov16
     client.patch("/api/settings", json={"notify_urls": ["ntfys://ntfy.sh/me"]})
     item = client.post("/api/items/from-url", json={"url": "https://www.costco.ca/xm6.product.html"}).json()
     src = item["sources"][0]
-    client.patch(f"/api/sources/{src['id']}", json={"fetch_mode": "http"})  # Costco defaults to the browser
+    client.patch(f"/api/sources/{src['id']}", json={"fetch_mode": "auto"})  # Costco defaults to search-only prices
     costco = next(r for r in client.get("/api/retailers").json() if r["domain"] == "costco.ca")
     from pricewatch.db import session_scope as _ss
     from pricewatch.models import Retailer as _R

@@ -205,7 +205,7 @@ def test_preview_replaces_template_title(client, pages):
 
     db = session_scope()
     r = db.query(Retailer).filter_by(domain="sportchek.ca").one()
-    r.fetch_mode, r.min_interval_seconds = "http", None  # seeded browser mode and 45 s spacing; not needed here
+    r.fetch_mode, r.min_interval_seconds = "auto", None  # seeded browser mode and 45 s spacing; not needed here
     db.commit()
     db.close()
     resp = client.post("/api/preview", json={

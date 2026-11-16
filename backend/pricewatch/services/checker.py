@@ -20,21 +20,19 @@ from ..adapters.base import ParsedProduct, RetailerConfig
 from ..adapters.registry import get_adapter
 from ..config import get_settings
 from ..db import session_scope
-from ..fetch import browser
 from ..fetch.http import FetchResult, domain_of, looks_like_challenge
 from ..metrics import FETCH_SECONDS, FETCH_TOTAL
 from ..models import FetchRun, Item, Observation, Retailer, SourceLink
 from ..timeutil import utcnow
-from . import alerts, events, keepa, runtime, settings_store
+from . import alerts, events, runtime, settings_store
 
 log = logging.getLogger(__name__)
 
 MAX_RETRY_AFTER = 24 * 3600
-CONFIDENCE = {"jsonld": 0.95, "css": 0.9, "microdata": 0.85, "opengraph": 0.7, "keepa": 0.99,
-              "changedetection": 0.9, "manual": 1.0, "bestbuy_api": 0.95,
+CONFIDENCE = {"jsonld": 0.95, "css": 0.9, "microdata": 0.85, "opengraph": 0.7, "manual": 1.0, "search": 0.75,
               "embedded_json": 0.9}
 CLAUDE_FALLBACK_STATUSES = ("blocked", "no_price", "robots")
-SKIP_MODES = ("manual", "changedetection")
+SKIP_MODES = ("manual", "search")  # "search": prices come from the cross-store searches only
 
 
 def payload_hash(parsed: ParsedProduct) -> str:
@@ -109,71 +107,24 @@ def _currency_ok(parsed: ParsedProduct) -> bool:
     return parsed.currency in (None, "", "CAD")
 
 
-async def fetch_and_parse(url: str, retailer: Retailer | None, mode: str, *, etag: str | None = None,
-                          last_modified: str | None = None, use_cache: bool = False,
-                          allow_browser: bool = True) -> tuple[FetchResult, ParsedProduct | None, str]:
-    """Return (fetch result, parsed product or None, method used)."""
-    s = get_settings()
+async def fetch_and_parse(url: str, retailer: Retailer | None, mode: str = "auto", *, etag: str | None = None,
+                          last_modified: str | None = None,
+                          use_cache: bool = False) -> tuple[FetchResult, ParsedProduct | None, str]:
+    """Fetch a product page politely and read its price. Returns (fetch result, parsed product or None, "http")."""
     fetcher = runtime.get_fetcher()
     domain = retailer.domain if retailer else domain_of(url)
     cfg = RetailerConfig(domain=domain, selectors=retailer.selectors if retailer else None)
     adapter = get_adapter(retailer.adapter if retailer else None)
     respect = retailer.respect_robots if retailer else True
     min_interval = retailer.min_interval_seconds if retailer else None
-    result: FetchResult
     parsed: ParsedProduct | None = None
-    method = "http"
-
-    if mode == "bestbuy_api":
-        from ..adapters import bestbuy
-
-        api = bestbuy.api_url(url)
-        if api:
-            start = time.monotonic()
-            result = await fetcher.fetch(api, respect_robots=respect, min_interval=min_interval)
-            FETCH_SECONDS.labels(method="api").observe(time.monotonic() - start)
-            if result.outcome == "ok" and result.html:
-                parsed = bestbuy.parse_json(result.html, url)
-                if parsed and parsed.has_price:
-                    result.url = url
-                    return result, parsed, "api"
-        mode, etag, last_modified = "auto", None, None  # fall back to the product page
-
-    if mode != "browser":
-        start = time.monotonic()
-        result = await fetcher.fetch(url, etag=etag, last_modified=last_modified, respect_robots=respect,
-                                     min_interval=min_interval, use_cache=use_cache)
-        FETCH_SECONDS.labels(method="http").observe(time.monotonic() - start)
-        if result.outcome == "ok" and result.html:
-            parsed = adapter.parse(result.html, result.url, cfg)
-        if result.outcome in ("ok", "not_modified", "robots", "blocked") and (
-            result.outcome != "ok" or (parsed and parsed.has_price)
-        ):
-            return result, parsed, method
-        if mode == "http" or not (s.browser_enabled and allow_browser):
-            return result, parsed, method
-    else:
-        result = FetchResult(url=url, outcome="error")
-        if not s.browser_enabled:
-            result.error = "Browser mode requested but PRICEWATCH_BROWSER_ENABLED is false"
-            return result, None, "browser"
-        if respect and not await fetcher.allowed(url):
-            return FetchResult(url=url, outcome="robots", error="Disallowed by robots.txt"), None, "browser"
-
-    method = "browser"
     start = time.monotonic()
-    try:
-        async with runtime.browser_lock(domain):
-            html = await browser.render(url, s.browser_ws, s.browser_timeout, fetcher.user_agent,
-                                        s.data_dir / "screenshots")
-        parsed = adapter.parse(html, url, cfg)
-        result = FetchResult(url=url, outcome="ok", status_code=200, html=html,
-                             elapsed_ms=int((time.monotonic() - start) * 1000))
-    except Exception as exc:  # noqa: BLE001
-        result = FetchResult(url=url, outcome="error", error=f"browser: {type(exc).__name__}: {exc}",
-                             elapsed_ms=int((time.monotonic() - start) * 1000))
-    FETCH_SECONDS.labels(method="browser").observe(time.monotonic() - start)
-    return result, parsed, method
+    result = await fetcher.fetch(url, etag=etag, last_modified=last_modified, respect_robots=respect,
+                                 min_interval=min_interval, use_cache=use_cache)
+    FETCH_SECONDS.labels(method="http").observe(time.monotonic() - start)
+    if result.outcome == "ok" and result.html:
+        parsed = adapter.parse(result.html, result.url, cfg)
+    return result, parsed, "http"
 
 
 def record_observation(db: Session, src: SourceLink, *, price_cents: int | None, was_price_cents: int | None,
@@ -256,56 +207,6 @@ def reset_blocks(retailer: Retailer | None) -> None:
         retailer.backoff_until = None
 
 
-async def _check_keepa(db: Session, src: SourceLink) -> tuple[str, str | None, dict | None]:
-    key = get_settings().keepa_api_key
-    if not key:
-        return "needs_keepa", "Amazon.ca needs a Keepa API key (KEEPA_API_KEY); add prices by hand meanwhile", None
-    asin = src.external_id or keepa.asin_from_url(src.url)
-    if not asin:
-        return "no_price", "No ASIN found in the Amazon URL", None
-    src.external_id = asin
-    first = src.last_success_at is None
-    try:
-        product = await keepa.fetch_product(key, asin, history=first)
-    except keepa.KeepaError as exc:
-        return "error", str(exc), None
-    item = src.item
-    if first:
-        seed_keepa_history(db, src, product)
-        if item.autofill:
-            apply_autofill(item, product.title, product.brand, product.model, product.gtin, product.image)
-    if product.amazon_price_cents:
-        price, seller_type = product.amazon_price_cents, "first_party"
-    elif product.buybox_price_cents:
-        price, seller_type = product.buybox_price_cents, "marketplace:Amazon buy box"
-    else:
-        src.last_in_stock = False
-        return "out_of_stock", "No Amazon or buy box offer right now", None
-    _, previous = record_observation(
-        db, src, price_cents=price, was_price_cents=product.list_price_cents
-        if product.list_price_cents and product.list_price_cents > price else None,
-        shipping_cents=None, in_stock=True, seller="Amazon.ca" if seller_type == "first_party" else None,
-        method="keepa", seller_type=seller_type, parse_confidence=CONFIDENCE["keepa"])
-    if product.title and not src.title:
-        src.title = product.title[:500]
-    return "ok", None, previous
-
-
-def seed_keepa_history(db: Session, src: SourceLink, product: keepa.KeepaProduct) -> int:
-    """Seed the seasonal window with Amazon-as-seller history so the seasonal low is meaningful on day one."""
-    cfg = settings_store.get_all(db)
-    since = events.season_start(cfg, utcnow())
-    count = 0
-    for at, price in product.amazon_history:
-        if at < since or price is None:
-            continue
-        record_observation(db, src, price_cents=price, was_price_cents=None, shipping_cents=None, in_stock=True,
-                           seller="Amazon.ca", method="keepa", parse_confidence=CONFIDENCE["keepa"],
-                           observed_at=at, update_source=False)
-        count += 1
-    return count
-
-
 def apply_autofill(item: Item, name: str | None, brand: str | None, model: str | None, gtin: str | None,
                    image: str | None) -> None:
     """Fill details for items created from a bare URL (paste-a-list, share target, bookmarklet)."""
@@ -321,7 +222,8 @@ def apply_autofill(item: Item, name: str | None, brand: str | None, model: str |
     item.autofill = False
 
 
-async def claude_fallback(db: Session, src: SourceLink, retailer: Retailer | None) -> dict | None:
+async def claude_fallback(db: Session, src: SourceLink, retailer: Retailer | None,
+                          force: bool = False) -> dict | None:
     """Read the price through Claude when the store blocked the direct check. Returns the previous state, or None."""
     from . import claude_price
 
@@ -331,7 +233,7 @@ async def claude_fallback(db: Session, src: SourceLink, retailer: Retailer | Non
     since = utcnow() - timedelta(hours=claude_price.MIN_HOURS)
     recent = db.scalar(select(func.count()).select_from(Observation).where(
         Observation.source_link_id == src.id, Observation.method == "claude", Observation.observed_at >= since))
-    if recent:
+    if recent and not force:
         return None
     name = src.title or (src.item.name if src.item else None)
     try:
@@ -353,8 +255,11 @@ async def claude_fallback(db: Session, src: SourceLink, retailer: Retailer | Non
     return previous
 
 
-async def check_source(source_id: int) -> str:
-    """Check one source link. Returns the outcome string."""
+async def check_source(source_id: int, verify: bool = False) -> str:
+    """Check one source link. Returns the outcome string.
+
+    ``verify`` (a person pressed Verify): stores whose prices come from searches are read by Claude right now.
+    """
     db = session_scope()
     try:
         src = db.get(SourceLink, source_id)
@@ -363,6 +268,15 @@ async def check_source(source_id: int) -> str:
         retailer = src.retailer
         domain = retailer.domain if retailer else domain_of(src.url)
         mode = src.fetch_mode or (retailer.fetch_mode if retailer else "auto")
+        if mode == "search" and verify:
+            previous = await claude_fallback(db, src, retailer, force=True)
+            db.add(FetchRun(source_link_id=src.id, domain=domain, started_at=utcnow(), duration_ms=0,
+                            status="ok" if previous is not None else "no_price", method="claude"))
+            db.commit()
+            if previous is not None:
+                run_alerts(db, src, previous, None)
+                return "ok"
+            return "no_price"
         if mode in SKIP_MODES:
             src.next_check_at = None
             db.commit()
@@ -389,57 +303,51 @@ async def check_source(source_id: int) -> str:
         http_status = None
         elapsed = 0
 
-        if mode == "keepa":
-            t0 = time.monotonic()
-            status, error, previous = await _check_keepa(db, src)
-            elapsed = int((time.monotonic() - t0) * 1000)
-        else:
-            allow_browser = bool(settings_store.get(db, "browser_fallback"))
-            result, parsed, method = await fetch_and_parse(
-                src.url, retailer, mode, etag=src.etag, last_modified=src.last_modified, allow_browser=allow_browser)
-            http_status, elapsed = result.status_code, result.elapsed_ms
-            status, error = result.outcome, result.error
-            if result.outcome == "ok":
-                if parsed and parsed.has_price and _currency_ok(parsed):
-                    status = "ok"
-                elif parsed and parsed.has_price:
-                    status, error = "currency", f"Price is in {parsed.currency}, not CAD"
-                elif looks_like_challenge(result.html):
-                    status, error = "blocked", "Page loaded but looks like a bot challenge (no price)"
-                else:
-                    status, error = "no_price", "No price found on the page"
+        result, parsed, method = await fetch_and_parse(
+            src.url, retailer, mode, etag=src.etag, last_modified=src.last_modified)
+        http_status, elapsed = result.status_code, result.elapsed_ms
+        status, error = result.outcome, result.error
+        if result.outcome == "ok":
+            if parsed and parsed.has_price and _currency_ok(parsed):
+                status = "ok"
+            elif parsed and parsed.has_price:
+                status, error = "currency", f"Price is in {parsed.currency}, not CAD"
+            elif looks_like_challenge(result.html):
+                status, error = "blocked", "Page loaded but looks like a bot challenge (no price)"
+            else:
+                status, error = "no_price", "No price found on the page"
 
-            if status == "ok":
-                assert parsed is not None
-                page_html = result.html
-                if method == "http":
-                    src.etag, src.last_modified = result.etag, result.last_modified
-                from ..adapters.base import clean_name
+        if status == "ok":
+            assert parsed is not None
+            page_html = result.html
+            if method == "http":
+                src.etag, src.last_modified = result.etag, result.last_modified
+            from ..adapters.base import clean_name
 
-                parsed.name = clean_name(parsed.name, src.url, retailer.name if retailer else None)
-                if parsed.name and not src.title:
-                    src.title = parsed.name[:500]
-                if src.item.autofill:
-                    apply_autofill(src.item, parsed.name, parsed.brand, parsed.mpn, parsed.gtin, parsed.image)
-                seller_type = seller_type_for(parsed.seller, retailer)
-                condition = normal_condition(parsed.condition)
-                _, previous = record_observation(
-                    db, src, price_cents=parsed.price_cents, was_price_cents=parsed.was_price_cents,
-                    shipping_cents=parsed.shipping_cents, in_stock=parsed.in_stock, seller=parsed.seller,
-                    method=method, phash=payload_hash(parsed), seller_type=seller_type, condition=condition,
-                    parse_confidence=CONFIDENCE.get(parsed.source or "", 0.6))
-                reason = counts_for_item(src.item, condition, seller_type)
-                if reason:
-                    status, error = "excluded", f"Recorded, but not compared: listing is {reason}"
-                    src.last_error = error
-            elif status == "not_modified" and src.last_price_cents is not None:
-                _, previous = record_observation(
-                    db, src, price_cents=src.last_price_cents, was_price_cents=src.last_was_price_cents,
-                    shipping_cents=src.last_shipping_cents, in_stock=src.last_in_stock, seller=src.last_seller,
-                    method="not_modified", seller_type=src.last_seller_type or "first_party",
-                    condition=src.last_condition or "new", parse_confidence=1.0)
+            parsed.name = clean_name(parsed.name, src.url, retailer.name if retailer else None)
+            if parsed.name and not src.title:
+                src.title = parsed.name[:500]
+            if src.item.autofill:
+                apply_autofill(src.item, parsed.name, parsed.brand, parsed.mpn, parsed.gtin, parsed.image)
+            seller_type = seller_type_for(parsed.seller, retailer)
+            condition = normal_condition(parsed.condition)
+            _, previous = record_observation(
+                db, src, price_cents=parsed.price_cents, was_price_cents=parsed.was_price_cents,
+                shipping_cents=parsed.shipping_cents, in_stock=parsed.in_stock, seller=parsed.seller,
+                method=method, phash=payload_hash(parsed), seller_type=seller_type, condition=condition,
+                parse_confidence=CONFIDENCE.get(parsed.source or "", 0.6))
+            reason = counts_for_item(src.item, condition, seller_type)
+            if reason:
+                status, error = "excluded", f"Recorded, but not compared: listing is {reason}"
+                src.last_error = error
+        elif status == "not_modified" and src.last_price_cents is not None:
+            _, previous = record_observation(
+                db, src, price_cents=src.last_price_cents, was_price_cents=src.last_was_price_cents,
+                shipping_cents=src.last_shipping_cents, in_stock=src.last_in_stock, seller=src.last_seller,
+                method="not_modified", seller_type=src.last_seller_type or "first_party",
+                condition=src.last_condition or "new", parse_confidence=1.0)
 
-        if status in CLAUDE_FALLBACK_STATUSES and mode != "keepa":
+        if status in CLAUDE_FALLBACK_STATUSES:
             t0 = time.monotonic()
             fallback_prev = await claude_fallback(db, src, retailer)
             if fallback_prev is not None:
@@ -462,8 +370,8 @@ async def check_source(source_id: int) -> str:
             src.last_checked_at = utcnow()
             src.last_error = error
             src.consecutive_failures = (src.consecutive_failures or 0) + 1
-            if status == "blocked" and mode != "keepa":
-                retry_after = result.retry_after if mode != "keepa" else None
+            if status == "blocked":
+                retry_after = result.retry_after
                 if register_block(db, retailer, retry_after) and retailer is not None:
                     alerts.domain_blocked(db, retailer)
             if status == "not_modified":
@@ -476,9 +384,6 @@ async def check_source(source_id: int) -> str:
         db.commit()
         if previous is not None:
             run_alerts(db, src, previous, page_html)
-            from . import protection
-
-            await protection.add_screenshots(db, src)
         log.info("checked", extra={"source_id": src.id, "domain": domain, "status": status, "method": method})
         return status
     except Exception:

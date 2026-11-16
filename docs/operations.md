@@ -5,14 +5,9 @@
 | Container | Limit | Notes |
 |---|---|---|
 | `pricewatch` | 512 MB | API, UI, scheduler. Port 8086. Health check: `/healthz` |
-| `pricewatch-browser` | 2 GB, `shm_size` 1 GB | Playwright Chromium server, one page per domain at a time |
-| `changedetection` (optional) | 768 MB | Only if you use the bridge; see `docs/phase0-stopgap.md` |
 
-Recycle the browser nightly (memory creep). TrueNAS, System, Advanced, Cron Jobs, add (user `root`, 04:00):
-
-```bash
-docker restart pricewatch-browser
-```
+Since 1.0 there is no browser sidecar. If you added a nightly `docker restart pricewatch-browser` cron job, remove
+it (TrueNAS, System, Advanced, Cron Jobs). `update.sh` removes the old `pricewatch-browser` container.
 
 ## In-app updates
 
@@ -55,5 +50,5 @@ Check the pool name first (`zfs list`); measure twice before creating datasets.
 
 ## Code freeze
 
-Nov 26 18:00 to Dec 1 23:59: bug fixes only. Before the freeze, run `scripts/smoke.sh --browser`, confirm a test
+Nov 26 18:00 to Dec 1 23:59: bug fixes only. Before the freeze, run `scripts/smoke.sh`, confirm a test
 alert arrives, and check that the latest nightly backup restores (`sqlite3 backups/<file> "PRAGMA integrity_check"`).

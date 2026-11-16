@@ -43,48 +43,39 @@ class FakeProvider:
 def fake(monkeypatch):
     p = FakeProvider()
     monkeypatch.setattr(discovery, "get_provider", lambda name=None: p)
+    import pricewatch.api.find as find_api
+
+    monkeypatch.setattr(find_api, "get_provider", lambda name=None: p)
     return p
 
 
-def test_discover_suggests_matches_and_remembers_rejections(client, fake):
-    client.patch("/api/settings", json={"auto_confirm_strong": False})  # everything waits for a person here
+def test_every_known_store_is_tracked_with_its_search_price(client, fake):
     item = client.post("/api/items", json={"name": "Sony WH-1000XM6 Wireless Headphones Black", "brand": "Sony",
                                            "model": "WH1000XM6/B"}).json()
-    r = client.post(f"/api/items/{item['id']}/discover", json={})
-    assert r.status_code == 200, r.text
-    body = r.json()
+    body = client.post(f"/api/items/{item['id']}/discover", json={}).json()
     assert body["query"] == "Sony WH-1000XM6 Wireless Headphones Black WH1000XM6/B"
-    statuses = {c["url"]: c["status"] for c in body["candidates"]}
-    assert statuses["https://www.bestbuy.ca/en-ca/product/sony-wh-1000xm6/18930123"] == "suggested"
-    assert statuses["https://www.staples.ca/products/2988123-en-sony-wh1000xm6"] == "suggested"
-    assert statuses["https://www.ebay.ca/itm/123"] == "excluded"
-    assert statuses["https://www.walmart.ca/en/ip/sony-xm5/1"] == "low match"
-    assert statuses["https://www.google.ca/shopping/product/111"] == "no merchant link"
-    assert statuses["https://www.amazon.ca/dp/B0CASE1234"] == "low match"
-    assert body["added"] == 2
+    st = {c["url"]: c for c in body["candidates"]}
+    assert st["https://www.ebay.ca/itm/123"]["status"] == "excluded"  # refurbished
+    assert st["https://www.walmart.ca/en/ip/sony-xm5/1"]["status"] == "low match"  # the older model
+    assert st["https://www.amazon.ca/dp/B0CASE1234"]["status"] == "low match"  # a case
+    assert body["added"] == 2 and body["market"]["stores"] == 2
 
     detail = client.get(f"/api/items/{item['id']}").json()
-    suggested = [s for s in detail["sources"] if s["status"] == "suggested"]
-    assert len(suggested) == 2
-    assert suggested[0]["match_reasons"]["serp_price_cents"] in (44999, 42999)
-    assert detail["summary"]["suggested_count"] == 2
-    assert detail["summary"]["best_price_cents"] is None  # suggestions never count as prices
+    tracked = {s["retailer_name"]: s for s in detail["sources"]}
+    assert set(tracked) == {"Best Buy Canada", "Staples Canada"}
+    assert all(s["status"] == "confirmed" for s in tracked.values())
+    assert tracked["Staples Canada"]["last_price_cents"] == 42999 and tracked["Staples Canada"]["last_method"] == "search"
+    assert detail["summary"]["best_price_cents"] == 42999  # search prices count: the comparison is the point
+    offers = client.get(f"/api/items/{item['id']}/offers").json()
+    assert [o["merchant"] for o in offers if o["kind"] == "store"] == ["Staples", "Best Buy Canada"]
+    assert any(o["kind"] == "other" for o in offers)  # "Some Store": not a known Canadian store, shown but not tracked
 
-    # reject one, confirm the other
-    bb = next(s for s in suggested if "bestbuy" in s["url"])
-    st = next(s for s in suggested if "staples" in s["url"])
-    client.patch(f"/api/sources/{bb['id']}", json={"status": "rejected"})
-    client.patch(f"/api/sources/{st['id']}", json={"status": "confirmed"})
-
-    # second run: cached (no new billable search) and the rejection is remembered
+    # hiding a store is remembered; a second run uses the cache (no new paid search) and adds nothing
+    client.patch(f"/api/sources/{tracked['Best Buy Canada']['id']}", json={"status": "rejected"})
     body2 = client.post(f"/api/items/{item['id']}/discover", json={}).json()
-    assert body2["cached"] is True and fake.calls == 1
-    statuses2 = {c["url"]: c["status"] for c in body2["candidates"]}
-    assert statuses2[bb["url"]] == "already rejected"
-    assert statuses2[st["url"]] == "already confirmed"
-    assert body2["added"] == 0
-
-    # force: billable again
+    assert body2["cached"] is True and fake.calls == 1 and body2["added"] == 0
+    sources = client.get(f"/api/items/{item['id']}").json()["sources"]
+    assert next(s for s in sources if s["id"] == tracked["Best Buy Canada"]["id"])["status"] == "rejected"
     client.post(f"/api/items/{item['id']}/discover", json={"force": True})
     assert fake.calls == 2
     assert client.get("/api/discovery/providers").status_code == 200
@@ -108,19 +99,6 @@ def test_no_provider(client, monkeypatch):
 def test_settings_numeric_validation(client):
     assert client.patch("/api/settings", json={"match_threshold": 20}).status_code == 422
     assert client.patch("/api/settings", json={"match_threshold": 90}).json()["match_threshold"] == 90
-
-
-def test_strong_matches_are_tracked_at_once(client, fake):
-    item = client.post("/api/items", json={"name": "Sony WH-1000XM6 Wireless Headphones Black", "brand": "Sony",
-                                           "model": "WH1000XM6/B"}).json()
-    body = client.post(f"/api/items/{item['id']}/discover", json={}).json()
-    st = {c["url"]: c for c in body["candidates"]}
-    bb = st["https://www.bestbuy.ca/en-ca/product/sony-wh-1000xm6/18930123"]
-    assert bb["status"] == "confirmed" and bb["method"] in ("mpn", "model", "gtin")
-    fuzzy = [c for c in body["candidates"] if c["status"] == "suggested"]
-    assert all(c["method"] == "fuzzy" for c in fuzzy)
-    src = next(s for s in client.get(f"/api/items/{item['id']}").json()["sources"] if s["url"] == bb["url"])
-    assert src["next_check_at"] is not None  # first price check queued
 
 
 GOOGLE_ONLY = {"shopping_results": [
@@ -159,15 +137,15 @@ def test_google_only_results_open_the_store_list(client, monkeypatch):
     monkeypatch.setattr(discovery, "get_provider", lambda name=None: P() if name in (None, "serpapi") else None)
     item = client.post("/api/items", json={"name": "Nintendo Switch 2 System"}).json()
     body = client.post(f"/api/items/{item['id']}/discover", json={}).json()
-    statuses = {c["url"]: c["status"] for c in body["candidates"]}
-    assert statuses["https://www.bestbuy.ca/en-ca/product/nintendo-switch-2/19000001"] in ("suggested", "confirmed")
-    assert statuses["https://www.walmart.ca/en/ip/nintendo-switch-2/6000201"] in ("suggested", "confirmed")
+    srcs = {s["retailer_name"]: s for s in client.get(f"/api/items/{item['id']}").json()["sources"]}
+    assert srcs["Best Buy Canada"]["url"] == "https://www.bestbuy.ca/en-ca/product/nintendo-switch-2/19000001"
+    assert srcs["Walmart Canada"]["url"] == "https://www.walmart.ca/en/ip/nintendo-switch-2/6000201"  # store page
+    assert srcs["Walmart Canada"]["fetch_mode"] == "search"  # Walmart blocks visits: prices from searches
     assert seen.count("google_immersive_product") == 1  # only the matching product's store list was opened
     assert all("token" not in c for c in body["candidates"])
 
 
-def test_prices_across_stores_snapshot_best_price_and_alert(client, db_session, monkeypatch):
-    from pricewatch.models import Alert
+def test_prices_across_stores_snapshot_and_best_price(client, db_session, monkeypatch):
     from pricewatch.services.discovery import merchant_key
 
     rows = {"shopping_results": [
@@ -191,16 +169,14 @@ def test_prices_across_stores_snapshot_best_price_and_alert(client, db_session, 
     monkeypatch.setattr(discovery, "get_provider", lambda name=None: P() if name in (None, "serpapi") else None)
     item = client.post("/api/items", json={"name": "Nintendo Switch 2 System", "target_price_cents": 64999}).json()
     body = client.post(f"/api/items/{item['id']}/discover", json={}).json()
-    assert body["market"] == {"stores": 2, "best_cents": 62999}
+    assert body["market"]["stores"] == 2 and body["market"]["best_cents"] == 62999
     offers = client.get(f"/api/items/{item['id']}/offers").json()
     assert [(o["merchant"], o["price_cents"], o["store_link"]) for o in offers] == [
         ("Best Buy", 62999, True), ("Walmart", 64999, False)]  # one per store, lowest; refurbished left out
-    assert offers[0]["tracked"] in ("suggested", "confirmed")
+    assert offers[0]["tracked"] == "confirmed"
     m = client.get(f"/api/items/{item['id']}").json()["summary"]["market"]
     assert m["best"]["merchant"] == "Best Buy" and m["stores"] == 2
-    assert db_session.query(Alert).filter_by(rule_type="market_target").count() == 1
-    client.post(f"/api/items/{item['id']}/discover", json={})  # same price again: no second alert
-    assert db_session.query(Alert).filter_by(rule_type="market_target").count() == 1
+    assert client.get(f"/api/items/{item['id']}").json()["summary"]["best_price_cents"] == 62999
     assert merchant_key("Walmart.ca") == merchant_key("walmart") == merchant_key("Walmart Canada")
 
 
@@ -230,3 +206,30 @@ def test_daily_refresh_is_paced_to_the_monthly_limit(client, db_session, monkeyp
     assert asyncio.run(discovery.refresh_stale(db_session, per_run=3)) == 0 and P.calls == 0
     client.patch("/api/settings", json={"serp_monthly_limit": 300})
     assert asyncio.run(discovery.refresh_stale(db_session, per_run=3)) == 3
+
+
+def test_find_compares_then_watch_tracks_every_store_without_a_second_search(client, fake):
+    r = client.post("/api/find", json={"q": "Sony WH-1000XM6 Wireless Headphones Black"}).json()
+    assert r["provider"] == "serpapi" and fake.calls == 1
+    stores = [o for o in r["offers"] if o["kind"] == "store"]
+    assert [o["merchant"] for o in stores][:2] == ["Staples", "Best Buy Canada"]
+    assert r["best"]["price_cents"] == 42999 and r["best"]["landed_cents"] > 42999  # with tax
+    assert r["suggested_target_cents"] == 38599
+    w = client.post("/api/watch", json={"name": r["product"]["name"], "query": r["query"],
+                                        "target_price_cents": r["suggested_target_cents"]})
+    assert w.status_code == 201, w.text
+    item = w.json()["item"]
+    assert fake.calls == 1  # the comparison's search was reused
+    assert {s["retailer_name"] for s in item["sources"]} == {"Best Buy Canada", "Staples Canada"}
+    assert item["summary"]["best_price_cents"] == 42999
+
+
+def test_find_barcode_and_no_provider(client, monkeypatch):
+    monkeypatch.setattr(discovery, "get_provider", lambda name=None: None)
+    import pricewatch.api.find as find_api
+
+    monkeypatch.setattr(find_api, "get_provider", lambda name=None: None)
+    r = client.post("/api/find", json={"q": "LEGO Titanic"}).json()
+    assert r["offers"] == [] and "SerpApi" in r["notes"][0]
+    w = client.post("/api/watch", json={"name": "LEGO Titanic"}).json()
+    assert w["item"]["name"] == "LEGO Titanic"

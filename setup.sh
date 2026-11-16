@@ -4,7 +4,7 @@
 #  - creates the data folder owned by uid/gid 568 (TrueNAS "apps")
 #  - checks the host port is free
 #  - pulls the signed release image, falling back to a local build
-#  - builds the browser sidecar and starts the stack, then waits for the health check
+#  - starts the stack, then waits for the health check
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -91,7 +91,6 @@ else
     --build-arg VERSION="$VERSION" --build-arg REVISION="$(git rev-parse HEAD 2>/dev/null || echo unknown)" .
   set_env PRICEWATCH_IMAGE "parabyte-ca/$PROJECT"
 fi
-docker compose build browser
 
 # ---- start ----
 docker compose up -d

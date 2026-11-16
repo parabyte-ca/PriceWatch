@@ -20,7 +20,6 @@ interface SettingsData {
   alert_source_failing: boolean;
   fake_sale_pct: number;
   good_within_pct: number;
-  browser_fallback: boolean;
   match_threshold: number;
   auto_confirm_gtin: boolean;
   serp_monthly_limit: number;
@@ -196,7 +195,6 @@ export default function SettingsPage() {
             <option value="landed">Landed price (tax and shipping)</option>
           </select>
         </div>
-        {s.is_admin && <Toggle k="browser_fallback" label="Use the browser sidecar when a page has no price (household)" />}
       </div>
 
       <div className="card space-y-3">
@@ -251,7 +249,7 @@ export default function SettingsPage() {
               onChange={(e) => set("serp_monthly_limit", Number(e.target.value))} />
           </div>
         </div>
-        <Toggle k="discover_on_add" label="Search automatically when adding an item by name" />
+        <Toggle k="discover_on_add" label="Refresh prices across stores automatically (about daily, within the search limit)" />
         <Toggle k="deal_feed_enabled" label="Watch the RedFlagDeals Hot Deals feed (every 15 minutes)" />
         <Toggle k="email_import_enabled" label="Import forwarded order emails (needs the PRICEWATCH_IMAP_* mailbox)" />
         {s.email_import_enabled && (
@@ -274,20 +272,18 @@ export default function SettingsPage() {
           <input className="input w-28" type="number" step="0.5" value={(s.min_claim_cents || 0) / 100}
             onChange={(e) => set("min_claim_cents", Math.round(Number(e.target.value) * 100))} />
         </div>
-        <Toggle k="auto_confirm_gtin" label="Auto-confirm listings whose GTIN/UPC matches exactly" />
         <Toggle k="web_search_enabled" label="Find items at other stores with Claude web search (uses the Claude key)" />
-        <Toggle k="auto_confirm_strong" label="Track same-model and same-barcode matches automatically" />
         <Toggle k="llm_match_enabled" label="Ask Claude Haiku about uncertain matches (scores 80 to 94)" />
         {s.llm_match_enabled && !s.llm_available && (
           <p className="text-xs text-amber-700">Set ANTHROPIC_API_KEY in .env to use this.</p>
         )}
         <p className="text-xs text-slate-500">
           Sends only the item name, brand and model and the listing title to Anthropic. Answers are cached, so each pair is asked
-          once. Claude can reject a lookalike but never confirms a listing for you.
+          once. Claude can reject a lookalike listing so it is not compared.
         </p>
         <p className="text-xs text-slate-500">
-          Providers are enabled by SERPAPI_KEY or BRIGHTDATA_API_KEY in .env. Results are cached for 7 days per query.
-          SerpApi's free plan allows 250 searches a month.
+          Prices across stores come from Google Shopping (SERPAPI_KEY in .env) or Claude web search. A search is cached for a
+          week for the Add page; daily refreshes are spread so the monthly limit lasts the whole month.
         </p>
       </div>}
 

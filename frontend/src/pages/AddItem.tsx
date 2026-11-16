@@ -1,238 +1,190 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { api, Item, money, toCents } from "../api";
+import { api, Item, money, toCents, toDollars } from "../api";
 import BarcodeScan from "../components/BarcodeScan";
 import { useSession } from "../session";
 
-interface Preview {
-  url: string;
-  retailer: string;
-  outcome: string;
-  error: string | null;
-  method: string;
-  claude?: { used: boolean; found?: boolean; seen_on?: string; reason?: string } | null;
-  product: { name: string | null; price_cents: number | null; was_price_cents: number | null; image: string | null;
-    brand: string | null; mpn: string | null; gtin: string | null; in_stock: boolean | null; currency: string | null } | null;
+interface FindOffer { merchant: string; title: string; url: string; store_link: boolean; price_cents: number;
+  shipping_cents: number | null; landed_cents: number; kind: string; domain: string | null; confidence: number | null; method: string }
+interface FindResult {
+  query: string; provider: string | null; cached: boolean; notes: string[];
+  product: { name: string | null; brand: string | null; model: string | null; gtin: string | null; image: string | null };
+  link: { url: string; store: string; price_cents: number | null; blocked: boolean } | null;
+  offers: FindOffer[]; best: FindOffer | null; suggested_target_cents: number | null;
 }
 
-const firstUrl = (...values: (string | null)[]) => {
-  for (const v of values) {
-    const m = v?.match(/https?:\/\/\S+/);
-    if (m) return m[0];
-  }
-  return "";
-};
+const KIND_LABEL: Record<string, string> = { marketplace: "Marketplace sellers", other: "Other sites (not a known Canadian store)" };
 
+const firstShared = (...values: (string | null)[]) => values.find((v) => v && v.trim()) || "";
+
+/** Add: one box for a name, a store link or a barcode. Shows every store's price, then Watch tracks them all. */
 export default function AddItem() {
   const nav = useNavigate();
   const { lists } = useSession();
   const writable = lists.filter((l) => l.role !== "viewer");
-  const [listId, setListId] = useState<string>("");
-  const chosenList = listId ? Number(listId) : undefined;
   const [params] = useSearchParams();
-  const shared = firstUrl(params.get("url"), params.get("text"), params.get("title"));
-  const [url, setUrl] = useState(shared);
-  const [list, setList] = useState("");
-  const [importResult, setImportResult] = useState("");
-  const [preview, setPreview] = useState<Preview | null>(null);
+  const shared = firstShared(params.get("q"), params.get("url"), params.get("text"), params.get("title"));
+  const [q, setQ] = useState(shared);
+  const [res, setRes] = useState<FindResult | null>(null);
+  const [busy, setBusy] = useState<"" | "find" | "watch">("");
+  const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
-  const [hot, setHot] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [manualName, setManualName] = useState("");
-  const [brand, setBrand] = useState("");
-  const [model, setModel] = useState("");
-  const [gtin, setGtin] = useState("");
+  const [listId, setListId] = useState("");
+  const [showOther, setShowOther] = useState(false);
 
-  useEffect(() => {
-    if (shared) runPreview(shared);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const doPreview = async (e: FormEvent) => {
-    e.preventDefault();
-    await runPreview(url.trim());
-  };
-
-  const runPreview = async (target: string) => {
-    setBusy(true);
-    setError("");
-    setPreview(null);
+  const run = async (text: string, force = false) => {
+    if (!text.trim()) return;
+    setBusy("find"); setError(""); setRes(null);
     try {
-      const p = await api<Preview>("/api/preview", { method: "POST", json: { url: target } });
-      setPreview(p);
-      setName(p.product?.name || "");
-    } catch (err) {
-      setError((err as Error).message);
+      const r = await api<FindResult>("/api/find", { method: "POST", json: { q: text.trim(), force } });
+      setRes(r);
+      setName(r.product.name || text.trim());
+      setTarget(toDollars(r.suggested_target_cents));
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   };
+  useEffect(() => { if (shared) void run(shared); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const save = async () => {
-    setBusy(true);
-    setError("");
+  const submit = (e: FormEvent) => { e.preventDefault(); void run(q); };
+
+  const watch = async () => {
+    if (!res) return;
+    setBusy("watch"); setError("");
     try {
-      const item = await api<Item>("/api/items/from-url", {
-        method: "POST",
-        json: { url: url.trim(), name: name || undefined, target_price_cents: toCents(target), hot, list_id: chosenList },
-      });
-      nav(`/items/${item.id}`);
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
+      const w = await api<{ item: Item }>("/api/watch", { method: "POST", json: {
+        name: name.trim() || res.product.name || q, brand: res.product.brand, model: res.product.model,
+        gtin: res.product.gtin && /^\d{8,14}$/.test(res.product.gtin) ? res.product.gtin : null, image_url: res.product.image,
+        query: res.query, target_price_cents: toCents(target), link_url: res.link?.url ?? null,
+        list_id: listId ? Number(listId) : undefined,
+      } });
+      nav(`/items/${w.item.id}`);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy("");
     }
   };
 
-  const createByName = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const item = await api<Item>("/api/items", {
-        method: "POST",
-        json: { name: manualName, brand: brand || null, model: model || null, gtin: gtin || null, target_price_cents: toCents(target), list_id: chosenList },
-      });
-      // PriceWatch searches other stores in the background after the item is created
-      nav(`/items/${item.id}`);
-    } catch (err) {
-      setError((err as Error).message);
-      setBusy(false);
-    }
-  };
+  const stores = res?.offers.filter((o) => o.kind === "store") ?? [];
+  const others = res?.offers.filter((o) => o.kind !== "store") ?? [];
 
-  const p = preview?.product;
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      {writable.length > 1 && (
-        <div className="flex items-center gap-2 md:col-span-2">
-          <label className="label mb-0">Add to</label>
-          <select className="input w-auto" value={listId} onChange={(e) => setListId(e.target.value)}>
-            <option value="">My default list</option>
-            {writable.map((l) => <option key={l.id} value={l.id}>{l.name}{l.shared ? " (shared)" : ""}</option>)}
-          </select>
+    <div className="mx-auto max-w-2xl space-y-4">
+      <form onSubmit={submit} className="card space-y-3">
+        <h1 className="text-lg font-semibold">What are you shopping for?</h1>
+        <div className="flex gap-2">
+          <input className="input text-base sm:text-sm" autoFocus enterKeyHint="search" value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Name, store link or barcode, e.g. Nintendo Switch 2" aria-label="Product" />
+          <button className="btn-primary" disabled={!!busy || !q.trim()}>{busy === "find" ? "Searching…" : "Compare"}</button>
+        </div>
+        <details className="text-sm">
+          <summary className="cursor-pointer text-slate-500">Scan a barcode with the camera</summary>
+          <div className="mt-2"><BarcodeScan onPick={(_n, _b, code) => { setQ(code); void run(code); }} /></div>
+        </details>
+        {busy === "find" && <p className="text-sm text-slate-500">Checking Canadian stores… this takes a few seconds.</p>}
+        {error && <p className="text-sm text-red-600">{error}</p>}
+      </form>
+
+      {res && (
+        <div className="card space-y-4">
+          <div className="flex gap-3">
+            {res.product.image && <img src={res.product.image} alt="" className="h-16 w-16 shrink-0 rounded object-contain" />}
+            <div className="min-w-0">
+              <div className="font-semibold">{res.product.name || res.query}</div>
+              <div className="text-xs text-slate-500">{[res.product.brand, res.product.model, res.product.gtin].filter(Boolean).join(" · ")}</div>
+            </div>
+          </div>
+
+          {res.best ? (
+            <div className="rounded-lg border border-green-600/40 bg-green-50 p-3 text-green-900 dark:bg-green-950/40 dark:text-green-100">
+              <div className="text-xs uppercase tracking-wide opacity-80">Best price right now</div>
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-2xl font-bold">{money(res.best.price_cents)}</span>
+                <span className="font-medium">at {res.best.merchant}</span>
+              </div>
+              <div className="text-xs opacity-80">{money(res.best.landed_cents)} with tax{res.best.shipping_cents === 0 ? ", free shipping" : ""} · {stores.length} store{stores.length === 1 ? "" : "s"} compared</div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-500">
+              {res.provider ? "No Canadian store prices found for this yet. Watch it anyway and PriceWatch keeps looking every day." : res.notes[0]}
+            </p>
+          )}
+
+          {stores.length > 0 && (
+            <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+              {stores.map((o, n) => (
+                <li key={o.url} className="flex items-center gap-3 py-2">
+                  <div className="min-w-0 flex-1">
+                    <a href={o.url} target="_blank" rel="noreferrer" className={`font-medium hover:underline ${n === 0 ? "text-green-700 dark:text-green-400" : ""}`}>{o.merchant}</a>
+                    <div className="truncate text-xs text-slate-500" title={o.title}>{o.title}</div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="font-semibold">{money(o.price_cents)}</div>
+                    <div className="text-xs text-slate-500">{money(o.landed_cents)} with tax</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {others.length > 0 && (
+            <div className="text-xs">
+              <button className="text-slate-500 hover:underline" onClick={() => setShowOther(!showOther)}>
+                {showOther ? "Hide" : "Show"} {others.length} marketplace or other listing{others.length === 1 ? "" : "s"}
+              </button>
+              {showOther && (
+                <ul className="mt-1 space-y-1">
+                  {others.map((o) => (
+                    <li key={o.url} className="flex gap-2">
+                      <a href={o.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 truncate hover:underline" title={o.title}>
+                        {o.merchant}: {o.title}
+                      </a>
+                      <span className="shrink-0">{money(o.price_cents)}</span>
+                      <span className="shrink-0 text-slate-400">{KIND_LABEL[o.kind] ? (o.kind === "marketplace" ? "marketplace" : "other") : ""}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {res.notes.length > 0 && res.best && res.notes.map((n) => <p key={n} className="text-xs text-amber-700">{n}</p>)}
+
+          <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+            <label className="label" htmlFor="w-name">Name</label>
+            <input id="w-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="w-40">
+                <label className="label" htmlFor="w-target">Alert me at</label>
+                <input id="w-target" className="input" inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="optional" />
+              </div>
+              {writable.length > 1 && (
+                <div>
+                  <label className="label" htmlFor="w-list">List</label>
+                  <select id="w-list" className="input w-auto" value={listId} onChange={(e) => setListId(e.target.value)}>
+                    <option value="">My default list</option>
+                    {writable.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
+              )}
+              <button className="btn-primary ml-auto" disabled={!!busy} onClick={watch}>{busy === "watch" ? "Saving…" : "Watch"}</button>
+            </div>
+            <p className="text-xs text-slate-500">
+              {res.suggested_target_cents ? "The suggested alert is about 10% under today's best price. " : ""}
+              Watching tracks every store above and re-checks prices about daily.
+              {res.cached ? " These results are from the last week's search; " : " "}
+              {res.cached && <button className="hover:underline" onClick={() => run(q, true)}>search again</button>}
+            </p>
+          </div>
         </div>
       )}
-      <div className="card space-y-3">
-        <h2 className="text-lg font-semibold">Add by product URL</h2>
-        <form onSubmit={doPreview} className="flex gap-2">
-          <input className="input" type="url" required placeholder="https://www.bestbuy.ca/en-ca/product/..." value={url}
-            onChange={(e) => setUrl(e.target.value)} />
-          <button className="btn-ghost" disabled={busy}>{busy && !preview ? "Reading..." : "Preview"}</button>
-        </form>
-        {preview && (
-          <div className="space-y-3 border-t border-slate-200 pt-3 dark:border-slate-800">
-            <div className="flex gap-3">
-              {p?.image && <img src={p.image} alt="" className="h-20 w-20 rounded object-contain" />}
-              <div className="text-sm">
-                <div className="font-medium">{preview.retailer}</div>
-                {p?.price_cents != null ? (
-                  <div>
-                    <span className="text-lg font-bold">{money(p.price_cents)}</span>
-                    {p.was_price_cents && <span className="ml-2 text-slate-500 line-through">{money(p.was_price_cents)}</span>}
-                    {p.in_stock === false && <span className="ml-2 text-amber-600">out of stock</span>}
-                    {preview.method === "claude" && (
-                      <div className="text-xs text-slate-500">
-                        Read by Claude from {preview.claude?.seen_on === "product_page" ? "the store's page" : "the store's search results"}, because{" "}
-                        {preview.retailer} blocks PriceWatch's own check. Scheduled checks will keep using Claude for this store.
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="text-amber-700">
-                    No price found yet. {preview.outcome === "blocked"
-                      ? `${preview.retailer} showed a "Robot or human?" style check instead of the product. PriceWatch does not try to get past those checks.`
-                      : preview.method === "browser"
-                      ? "The store's page did not show a price to the browser in time; it may be slow or blocking automated visits."
-                      : "The page has no readable price without a browser."}{" "}
-                    {preview.claude?.used && !preview.claude.found && <> {preview.claude.reason}.</>}
-                    {preview.claude && !preview.claude.used && (preview.claude.reason === "no Claude key saved"
-                      ? <> Add a Claude key in Household admin and PriceWatch will read prices from stores like this one for you.</>
-                      : <> Claude was not asked: {preview.claude.reason}.</>)}{" "}
-                    You can still save it: PriceWatch keeps trying on its schedule and looks for the same product at other stores.
-                    <details className="mt-1 text-xs text-slate-500"><summary className="cursor-pointer">Details</summary><span className="break-all">{preview.error || preview.outcome}</span></details>
-                  </div>
-                )}
-                {(p?.brand || p?.mpn || p?.gtin) && (
-                  <div className="text-xs text-slate-500">{[p?.brand, p?.mpn, p?.gtin].filter(Boolean).join(" · ")}</div>
-                )}
-              </div>
-            </div>
-            <div>
-              <label className="label">Name</label>
-              <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="label">Target price (before tax)</label>
-                <input className="input" inputMode="decimal" placeholder="e.g. 349.99" value={target} onChange={(e) => setTarget(e.target.value)} />
-              </div>
-              <label className="mt-6 flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={hot} onChange={(e) => setHot(e.target.checked)} /> Hot (every 2 h)
-              </label>
-            </div>
-            <button className="btn-primary" onClick={save} disabled={busy}>Save to wishlist</button>
-          </div>
-        )}
-        {error && <p className="text-sm text-red-600">{error}</p>}
-      </div>
 
-      <div className="card space-y-3 md:col-span-2">
-        <h2 className="text-lg font-semibold">Paste a list</h2>
-        <p className="text-sm text-slate-500">One product URL or product name per line. URLs are filled in by their first check.</p>
-        <textarea className="input font-mono" rows={5} value={list} onChange={(e) => setList(e.target.value)}
-          placeholder={"https://www.bestbuy.ca/en-ca/product/...\nhttps://www.canadiantire.ca/en/pdp/...\nLEGO Titanic 10294"} />
-        <div className="flex items-center gap-3">
-          <button className="btn-ghost" disabled={busy || !list.trim()} onClick={async () => {
-            setBusy(true);
-            try {
-              const r = await api<{ created: unknown[]; skipped: { line: string; reason: string }[] }>("/api/import", { method: "POST", json: { text: list, list_id: chosenList } });
-              setImportResult(`Added ${r.created.length}${r.skipped.length ? `, skipped ${r.skipped.length} (${r.skipped.map((x) => x.reason).join("; ")})` : ""}.`);
-              setList("");
-            } catch (err) {
-              setError((err as Error).message);
-            } finally {
-              setBusy(false);
-            }
-          }}>Import</button>
-          {importResult && <span className="text-sm text-green-700">{importResult}</span>}
-        </div>
-      </div>
-
-      <div className="card space-y-2 text-sm md:col-span-2">
-        <h2 className="text-lg font-semibold">Add from anywhere</h2>
-        <p>
-          <b>Bookmarklet:</b> drag this to your bookmarks bar, then click it on any product page:{" "}
-          <a className="btn-ghost px-2 py-1" href={`javascript:window.open('${location.origin}/share?url='+encodeURIComponent(location.href)+'&title='+encodeURIComponent(document.title))`}
-            onClick={(e) => e.preventDefault()}>+ PriceWatch</a>
-        </p>
-        <p><b>Android:</b> install PriceWatch to your home screen (browser menu, Install app), then use Share, PriceWatch from any shopping app.</p>
-        <p><b>iPhone:</b> make a Shortcut that accepts URLs from the Share Sheet and runs "Get contents of URL" with
-          method POST to <code>{location.origin}/api/items/from-url</code>, header <code>Authorization: Bearer &lt;your API token&gt;</code>
-          (Settings page) and JSON body <code>{`{"url": Shortcut Input}`}</code>.</p>
-      </div>
-
-      <BarcodeScan onPick={(n, b, code) => {
-        setManualName(n); setBrand(b || ""); setGtin(code);
-        document.getElementById("add-by-name")?.scrollIntoView({ behavior: "smooth" });
-      }} />
-
-      <form id="add-by-name" onSubmit={createByName} className="card space-y-3">
-        <h2 className="text-lg font-semibold">Add by name</h2>
-        <p className="text-sm text-slate-500">
-          PriceWatch looks for it at Canadian stores by itself. Exact matches (same model number or barcode) are tracked
-          right away; close matches wait on the item page for you to confirm.
-        </p>
-        <input className="input" required placeholder="Name, e.g. Sony WH-1000XM6 Headphones Black" value={manualName} onChange={(e) => setManualName(e.target.value)} />
-        <div className="flex gap-2">
-          <input className="input" placeholder="Brand (optional)" value={brand} onChange={(e) => setBrand(e.target.value)} />
-          <input className="input" placeholder="Model / MPN (optional)" value={model} onChange={(e) => setModel(e.target.value)} />
-        </div>
-        <input className="input" inputMode="decimal" placeholder="Target price (optional)" value={target} onChange={(e) => setTarget(e.target.value)} />
-        {gtin && <p className="text-xs text-slate-500">Barcode {gtin} will be saved with the item. <button type="button" className="hover:underline" onClick={() => setGtin("")}>remove</button></p>}
-        <button className="btn-ghost" disabled={busy}>{busy ? "Working..." : "Create and search"}</button>
-      </form>
+      <p className="px-1 text-xs text-slate-500">
+        Tip: on Android, install PriceWatch (browser menu, Install app), then use Share, PriceWatch from any shopping app.
+      </p>
     </div>
   );
 }

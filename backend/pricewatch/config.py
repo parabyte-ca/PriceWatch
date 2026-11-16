@@ -45,11 +45,6 @@ class Settings(BaseSettings):
     upgrade_status_dir: Path = Path("/upgrade-status")
     scheduler_enabled: bool = True
 
-    # browser sidecar
-    browser_enabled: bool = False
-    browser_ws: str = "ws://browser:3000/"
-    browser_timeout: float = 30.0
-
     # notifications (comma separated Apprise URLs); can also be set in the UI
     notify_urls: str = ""
 
@@ -73,13 +68,6 @@ class Settings(BaseSettings):
     imap_user: str | None = Field(default=None, validation_alias=AliasChoices("PRICEWATCH_IMAP_USER"))
     imap_password: str | None = Field(default=None, validation_alias=AliasChoices("PRICEWATCH_IMAP_PASSWORD"))
     imap_folder: str = Field(default="INBOX", validation_alias=AliasChoices("PRICEWATCH_IMAP_FOLDER"))
-
-    keepa_api_key: str | None = Field(
-        default=None, validation_alias=AliasChoices("KEEPA_API_KEY", "PRICEWATCH_KEEPA_API_KEY"))
-    changedetection_url: str | None = Field(
-        default=None, validation_alias=AliasChoices("CHANGEDETECTION_URL", "PRICEWATCH_CHANGEDETECTION_URL"))
-    changedetection_api_key: str | None = Field(
-        default=None, validation_alias=AliasChoices("CHANGEDETECTION_API_KEY", "PRICEWATCH_CHANGEDETECTION_API_KEY"))
 
     @property
     def db_url(self) -> str:

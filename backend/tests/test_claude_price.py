@@ -156,3 +156,18 @@ async def test_blocked_check_records_claude_price_twice_a_day_at_most(client, wi
     claude_price._recent.clear()
     assert await checker.check_source(src["id"]) == "blocked"  # within 12 h: no second paid lookup
     assert len(api.calls) == 1
+
+
+async def test_verify_reads_a_search_only_store_now(client, with_key, db_session, monkeypatch):
+    from pricewatch.models import Observation
+    from pricewatch.services import checker
+
+    item = client.post("/api/items", json={"name": "Nintendo Switch 2"}).json()
+    src = client.post(f"/api/items/{item['id']}/sources",
+                      json={"url": "https://www.walmart.ca/en/ip/nintendo-switch-2/6000201"}).json()
+    client.patch(f"/api/sources/{src['id']}", json={"fetch_mode": "search"})
+    assert await checker.check_source(src["id"]) == "skipped"  # the schedule never visits it
+    _fake(monkeypatch, [_report(product_url="https://www.walmart.ca/en/ip/nintendo-switch-2/6000201")])
+    assert client.post(f"/api/sources/{src['id']}/check").json()["outcome"] == "ok"  # Verify pressed
+    obs = db_session.query(Observation).filter_by(source_link_id=src["id"]).one()
+    assert (obs.method, obs.price_cents) == ("claude", 429999)

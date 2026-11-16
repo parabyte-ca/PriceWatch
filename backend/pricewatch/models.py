@@ -145,7 +145,7 @@ class Retailer(Base):
     domain: Mapped[str] = mapped_column(String(200), unique=True)
     name: Mapped[str] = mapped_column(String(200))
     adapter: Mapped[str] = mapped_column(String(50), default="generic")
-    fetch_mode: Mapped[str] = mapped_column(String(20), default="auto")  # auto | http | browser
+    fetch_mode: Mapped[str] = mapped_column(String(20), default="auto")  # auto | search | manual
     min_interval_seconds: Mapped[float | None] = mapped_column(Float)
     selectors: Mapped[dict | None] = mapped_column(JSON)
     respect_robots: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -199,7 +199,7 @@ class SourceLink(Base):
     discovered_via: Mapped[str | None] = mapped_column(String(30))
     fetch_mode: Mapped[str | None] = mapped_column(String(20))  # overrides retailer when set
     channel: Mapped[str] = mapped_column(String(40), default="online")  # online|warehouse|store:<id>|province:<code>
-    external_id: Mapped[str | None] = mapped_column(String(100))  # ASIN for Keepa, watch UUID for changedetection.io
+    external_id: Mapped[str | None] = mapped_column(String(100))  # reserved for external ids
     last_condition: Mapped[str | None] = mapped_column(String(20))
     last_seller_type: Mapped[str | None] = mapped_column(String(120))
     etag: Mapped[str | None] = mapped_column(String(300))
@@ -237,7 +237,7 @@ class Observation(Base):
     in_stock: Mapped[bool | None] = mapped_column(Boolean)
     seller: Mapped[str | None] = mapped_column(String(200))
     payload_hash: Mapped[str | None] = mapped_column(String(64))
-    method: Mapped[str] = mapped_column(String(20), default="http")  # http|browser|manual|not_modified|keepa|changedetection
+    method: Mapped[str] = mapped_column(String(20), default="http")  # http|claude|search|manual|not_modified
     channel: Mapped[str] = mapped_column(String(40), default="online")
     seller_type: Mapped[str] = mapped_column(String(120), default="first_party")  # first_party | marketplace:<name>
     condition: Mapped[str] = mapped_column(String(20), default="new")  # new|open_box|refurbished|used
@@ -447,6 +447,8 @@ class MarketOffer(Base):
     provider: Mapped[str] = mapped_column(String(30))
     confidence: Mapped[float | None] = mapped_column(Float)
     seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    domain: Mapped[str | None] = mapped_column(String(120))  # the known Canadian store, when recognised
+    kind: Mapped[str] = mapped_column(String(20), default="store")  # store | marketplace | bundle | other
 
 
 class LlmMatchCache(Base):

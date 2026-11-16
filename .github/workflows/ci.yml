@@ -40,6 +40,5 @@ jobs:
       - name: Build images
         run: |
           docker build -t parabyte-ca/pricewatch:"$(cat VERSION)" -t parabyte-ca/pricewatch:latest --build-arg VERSION="$(cat VERSION)" .
-          docker build -t parabyte-ca/pricewatch-browser:1.65.1 browser
-      - name: Smoke test (stack, alert, browser sidecar, restart)
-        run: scripts/smoke.sh --browser
+      - name: Smoke test (stack, alert, restart)
+        run: scripts/smoke.sh

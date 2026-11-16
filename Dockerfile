@@ -29,9 +29,6 @@ ENV PATH="/venv/bin:$PATH" \
     HOME=/tmp \
     PRICEWATCH_DATA_DIR=/data \
     PRICEWATCH_STATIC_DIR=/app/static
-# libatomic1 is needed by the Playwright driver that connects to the browser sidecar
-RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 \
-    && rm -rf /var/lib/apt/lists/*
 RUN groupadd -g 568 pricewatch && useradd -u 568 -g 568 -d /app -s /usr/sbin/nologin pricewatch \
     && mkdir -p /data /app && chown 568:568 /data
 WORKDIR /app

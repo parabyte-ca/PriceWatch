@@ -1,4 +1,4 @@
-"""Quick-add (import, share), notification actions, API token, policies, changedetection.io, digest."""
+"""Quick-add (import, share), notification actions, API token, policies, digest."""
 
 import re
 from datetime import timedelta
@@ -12,9 +12,9 @@ from sqlalchemy.orm import Session
 from ..auth import current_user, require_admin
 from ..db import get_db
 from ..models import Item, PricePolicy, User, UserItemPref
-from ..services import alerts, changedetection, settings_store
+from ..services import alerts, settings_store
 from ..timeutil import utcnow
-from .items import _load_item, _load_source, _target_list, create_item_from_url
+from .items import _load_item, _target_list, create_item_from_url
 
 router = APIRouter(prefix="/api", tags=["extra"])
 URL_RE = re.compile(r"https?://\S+")
@@ -134,29 +134,6 @@ def update_policy(policy_id: int, body: PolicyUpdate, db: Session = Depends(get_
         setattr(p, k, v)
     db.commit()
     return _policy_dict(p)
-
-
-@router.post("/sources/{source_id}/changedetection")
-def use_changedetection(source_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
-    """Hand this source to changedetection.io: create (or link) a restock watch; PriceWatch stops fetching it."""
-    if not changedetection.configured():
-        raise HTTPException(409, "Set CHANGEDETECTION_URL and CHANGEDETECTION_API_KEY in .env first")
-    src = _load_source(db, source_id, me, write=True)
-    try:
-        src.external_id = changedetection.create_watch(src)
-    except changedetection.ChangeDetectionError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    src.fetch_mode = "changedetection"
-    src.next_check_at = None
-    db.commit()
-    return {"source_id": src.id, "watch": src.external_id}
-
-
-@router.post("/changedetection/sync")
-def sync_changedetection(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    if not changedetection.configured():
-        raise HTTPException(409, "changedetection.io is not configured")
-    return changedetection.sync(db)
 
 
 @router.get("/digest/preview")

@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from pricewatch.fetch.http import PoliteFetcher, looks_like_challenge
-from pricewatch.services import alerts, checker, events, keepa, runtime
+from pricewatch.services import alerts, checker, events, runtime
 
 from .conftest import fixture_html
 
@@ -50,7 +50,7 @@ def test_challenge_detection():
 def test_200_challenge_is_blocked_not_out_of_stock(client, pages):
     item = client.post("/api/items/from-url", json={"url": "https://www.example-shop.ca/challenge"}).json()
     sid = item["sources"][0]["id"]
-    client.patch(f"/api/sources/{sid}", json={"fetch_mode": "http"})
+    client.patch(f"/api/sources/{sid}", json={"fetch_mode": "auto"})
     assert client.post(f"/api/sources/{sid}/check").json()["outcome"] == "blocked"
     src = client.get(f"/api/items/{item['id']}").json()["sources"][0]
     assert src["last_in_stock"] is None and src["last_price_cents"] is None
@@ -82,57 +82,6 @@ def test_seller_type_and_condition_helpers():
     assert checker.seller_type_for("Sold by GadgetCo via Marketplace", mx).startswith("marketplace")
     assert checker.normal_condition("Open Box") == "open_box"
     assert checker.normal_condition(None) == "new"
-
-
-# ---------- Keepa ----------
-
-KEEPA_JSON = {
-    "tokensLeft": 19,
-    "products": [{
-        "asin": "B0TESTASIN", "title": "Sony WH-1000XM6", "brand": "Sony", "model": "WH1000XM6/B",
-        "eanList": ["4548736158566"], "imagesCSV": "abc.jpg,def.jpg",
-        "csv": [[keepa.KEEPA_EPOCH_MINUTES * 0 + 8_000_000, 49999, 8_100_000, 42999, 8_200_000, -1]],
-        "stats": {"current": [44999, 43999, -1, -1, 54999] + [-1] * 13 + [44999]},
-    }],
-}
-
-
-def test_keepa_parse():
-    p = keepa.parse_product(KEEPA_JSON)
-    assert p.amazon_price_cents == 44999 and p.list_price_cents == 54999 and p.buybox_price_cents == 44999
-    assert p.gtin == "4548736158566" and p.image.endswith("abc.jpg")
-    assert [x[1] for x in p.amazon_history] == [49999, 42999, None]
-    assert keepa.asin_from_url("https://www.amazon.ca/Sony-Headphones/dp/B0TESTASIN?th=1") == "B0TESTASIN"
-
-
-def test_amazon_without_keepa_key_is_manual(client):
-    r = client.post("/api/preview", json={"url": "https://www.amazon.ca/dp/B0TESTASIN"}).json()
-    assert r["outcome"] == "needs_keepa" and "KEEPA_API_KEY" in r["error"]
-    item = client.post("/api/items/from-url", json={"url": "https://www.amazon.ca/dp/B0TESTASIN"}).json()
-    sid = item["sources"][0]["id"]
-    assert client.post(f"/api/sources/{sid}/check").json()["outcome"] == "needs_keepa"
-
-
-def test_amazon_with_keepa_seeds_history(client, monkeypatch):
-    from pricewatch.config import get_settings
-    monkeypatch.setattr(get_settings(), "keepa_api_key", "k")
-    now_min = int(datetime.now().timestamp() // 60) - keepa.KEEPA_EPOCH_MINUTES
-    data = {**KEEPA_JSON, "products": [{**KEEPA_JSON["products"][0],
-                                        "csv": [[now_min - 30 * 1440, 49999, now_min - 10 * 1440, 42999]]}]}
-
-    async def fake_fetch(key, asin, client=None, history=True):
-        return keepa.parse_product(data)
-
-    monkeypatch.setattr(keepa, "fetch_product", fake_fetch)
-    item = client.post("/api/items/from-url", json={"url": "https://www.amazon.ca/dp/B0TESTASIN"}).json()
-    detail = client.get(f"/api/items/{item['id']}").json()
-    assert detail["name"] == "Sony WH-1000XM6" and detail["gtin"] == "4548736158566"  # autofilled
-    src = detail["sources"][0]
-    assert src["last_price_cents"] == 44999 and src["external_id"] if "external_id" in src else True
-    hist = client.get(f"/api/items/{item['id']}/history").json()["series"][0]["points"]
-    assert [p["price_cents"] for p in hist] == [49999, 42999, 44999]
-    assert detail["summary"]["seasonal_low_cents"] == round(42999 * 1.13)
-    assert detail["summary"]["history_confidence"] == "MEDIUM"
 
 
 # ---------- policies, decisions ----------
@@ -241,39 +190,3 @@ def test_bearer_token_auth(client, monkeypatch):
     assert client.get("/api/items", headers={"Authorization": "Bearer wrong"}).status_code == 401
 
 
-# ---------- changedetection.io ----------
-
-def test_changedetection_sync(client, pages, monkeypatch):
-    from pricewatch.config import get_settings
-    from pricewatch.db import session_scope
-    from pricewatch.services import changedetection as cd
-
-    s = get_settings()
-    monkeypatch.setattr(s, "changedetection_url", "http://cd:5000")
-    monkeypatch.setattr(s, "changedetection_api_key", "key")
-    created = {}
-
-    def handler(req):
-        assert req.headers["x-api-key"] == "key"
-        if req.method == "POST":
-            created.update({"url": req.read().decode()})
-            return httpx.Response(201, json={"uuid": "u-1"})
-        if req.url.path == "/api/v1/watch":
-            return httpx.Response(200, json={"u-1": {"url": "https://www.bestbuy.ca/xm6"}})
-        return httpx.Response(200, json={"url": "https://www.bestbuy.ca/xm6", "last_checked": 1_900_000_000,
-                                         "restock": {"in_stock": True, "price": 399.99, "currency": "CAD"}})
-
-    real_client = cd._client
-    monkeypatch.setattr(cd, "_client", lambda: httpx.Client(base_url="http://cd:5000", headers={"x-api-key": "key"},
-                                                            transport=httpx.MockTransport(handler)))
-    item = client.post("/api/items/from-url", json={"url": "https://www.bestbuy.ca/xm6"}).json()
-    sid = item["sources"][0]["id"]
-    r = client.post(f"/api/sources/{sid}/changedetection").json()
-    assert r["watch"] == "u-1" and "restock_diff" in created["url"]
-    assert client.post(f"/api/sources/{sid}/check").json()["outcome"] == "skipped"  # PriceWatch stops fetching
-    db = session_scope()
-    stats = cd.sync(db)
-    db.close()
-    assert stats["recorded"] == 1
-    assert client.get(f"/api/items/{item['id']}").json()["sources"][0]["last_price_cents"] == 39999
-    assert real_client is not None

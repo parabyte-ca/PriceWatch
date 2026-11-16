@@ -18,6 +18,7 @@ from .api import accounts as accounts_api
 from .api import ask as ask_api
 from .api import emailimports as email_api
 from .api import extra as extra_api
+from .api import find as find_api
 from .api import homeassistant as ha_api
 from .api import items as items_api
 from .api import perks as perks_api
@@ -34,7 +35,7 @@ from .logging_setup import setup_logging
 from .metrics import ITEMS_GAUGE, SOURCES_GAUGE
 from .migrate import upgrade
 from .models import Item, SourceLink
-from .services import changedetection, runtime
+from .services import runtime
 from .services.retailers import seed_retailers
 from .timeutil import utcnow
 
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
                        max_age=60 * 60 * 24 * 30, same_site="lax", https_only=s.cookie_secure)
     app.include_router(auth_router)
     app.include_router(items_api.router)
+    app.include_router(find_api.router)
     app.include_router(system_api.router)
     app.include_router(extra_api.router)
     app.include_router(accounts_api.router)
@@ -108,7 +110,7 @@ def create_app() -> FastAPI:
 
     @app.get("/healthz")
     def healthz():
-        """DB must be writable for 200. Freshness and changedetection.io are reported, not fatal."""
+        """DB must be writable for 200. Freshness is reported, not fatal."""
         try:
             with get_engine().begin() as conn:
                 conn.execute(text("CREATE TEMP TABLE IF NOT EXISTS _health (x INTEGER)"))
@@ -123,8 +125,6 @@ def create_app() -> FastAPI:
             age_h = round((utcnow() - last_dt).total_seconds() / 3600, 1)
             body["last_success_hours"] = age_h
             body["fresh"] = age_h < 12
-        if changedetection.configured():
-            body["changedetection"] = changedetection.reachable()
         return JSONResponse(body, status_code=200 if db_ok else 503)
 
     @app.get("/metrics")
