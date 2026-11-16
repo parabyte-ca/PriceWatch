@@ -423,3 +423,16 @@ class FlyerMatch(Base):
     score: Mapped[float | None] = mapped_column(Float)
     url: Mapped[str | None] = mapped_column(String(1000))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class LlmMatchCache(Base):
+    """Cached Claude answers to "same product?" for one item description and one listing title."""
+
+    __tablename__ = "llm_match_cache"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)  # sha256 of model + item spec + listing title
+    same_product: Mapped[bool] = mapped_column(Boolean)
+    confidence: Mapped[float | None] = mapped_column(Float)
+    reason: Mapped[str | None] = mapped_column(String(300))
+    model: Mapped[str] = mapped_column(String(60))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

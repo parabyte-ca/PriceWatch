@@ -31,6 +31,7 @@ def get_settings_api(db: Session = Depends(get_db), me: User = Depends(current_u
     values["is_admin"] = me.role == "admin"
     values["provinces"] = {k: {"name": v[0], "rate": float(v[1])} for k, v in PROVINCE_TAX.items()}
     values["timezone"] = get_settings().timezone
+    values["llm_available"] = bool(get_settings().anthropic_api_key)
     return values
 
 

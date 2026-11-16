@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.7.0-blue)
+![Version](https://img.shields.io/badge/version-0.8.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,10 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- Sale-mode readiness checklist (System page) with a dry run of the Black Friday schedule against each store's polite limit, plus an automatic database copy before each sale mode starts
+- Black Friday mode (Nov 26 to Dec 1) and Boxing Week mode (Dec 26 to 31): top hot items every 30 minutes, second digest, shorter alert window
+- Basket planner: the cheapest way to split your buys across stores after free-shipping thresholds, tax and perks, with top-up tips
+- Optional Claude Haiku check on uncertain product matches (your Anthropic API key; can reject lookalikes, never confirms)
 - App notifications on each phone or computer (Web Push from the installed app, over HTTPS) with Open deal and Snooze buttons, alongside ntfy/Apprise
 - Savings page: what you spent, what you saved against the typical (60-day median) price, what you claimed back, per person and per list
 - Gift lists with occasion, recipient, date and a budget (spent vs remaining)
@@ -133,6 +137,8 @@ notification URLs are also editable on the Settings page.
 | `PRICEWATCH_BREAKER_BLOCKS` / `_HOURS` | `3` / `6` | Circuit breaker for blocking domains |
 | `PRICEWATCH_PUBLIC_URL` | empty | Address your phone uses; enables ntfy action buttons. Use the https:// address for app notifications |
 | `KEEPA_API_KEY` | empty | Amazon.ca prices and history via Keepa |
+| `ANTHROPIC_API_KEY` | empty | Claude Haiku second opinion on uncertain matches (also on in Settings) |
+| `PRICEWATCH_LLM_MATCH_MODEL` | `claude-haiku-5-5` | Model for that check |
 | `CHANGEDETECTION_URL` / `CHANGEDETECTION_API_KEY` | empty | changedetection.io bridge |
 | `PRICEWATCH_BROWSER_ENABLED` | `true` | Use the Playwright sidecar |
 | `PRICEWATCH_BROWSER_TIMEOUT` | `30` | Per-page hard timeout (seconds) |

@@ -31,6 +31,11 @@ interface SettingsData {
   blackfriday_mode: boolean;
   blackfriday_start: string;
   blackfriday_end: string;
+  boxingweek_mode: boolean;
+  boxingweek_start: string;
+  boxingweek_end: string;
+  llm_match_enabled: boolean;
+  llm_available?: boolean;
   digest_enabled: boolean;
   digest_time: string;
   digest_time_blackfriday: string;
@@ -68,7 +73,7 @@ export default function SettingsPage() {
   const save = async () => {
     setError("");
     try {
-      const { provinces: _p, env_notify_urls: _e, timezone: _t, is_admin: _a, user_keys: _u, ...rest } = s as SettingsData & { user_keys?: string[] };
+      const { provinces: _p, env_notify_urls: _e, timezone: _t, is_admin: _a, user_keys: _u, llm_available: _l, ...rest } = s as SettingsData & { user_keys?: string[] };
       await api("/api/settings", { method: "PATCH", json: { ...rest, notify_urls: urls.split("\n").map((u) => u.trim()).filter(Boolean) } });
       await load();
       setMsg("Saved");
@@ -136,6 +141,11 @@ export default function SettingsPage() {
         <div className="flex gap-2">
           <input className="input" type="datetime-local" value={s.blackfriday_start} onChange={(e) => set("blackfriday_start", e.target.value)} />
           <input className="input" type="datetime-local" value={s.blackfriday_end} onChange={(e) => set("blackfriday_end", e.target.value)} />
+        </div>
+        <Toggle k="boxingweek_mode" label="Boxing Week mode: the same faster schedule after Christmas" />
+        <div className="flex gap-2">
+          <input className="input" type="datetime-local" value={s.boxingweek_start} onChange={(e) => set("boxingweek_start", e.target.value)} />
+          <input className="input" type="datetime-local" value={s.boxingweek_end} onChange={(e) => set("boxingweek_end", e.target.value)} />
         </div></> : <p className="text-xs text-slate-500">The buy rule and Black Friday dates are set by the household admin.</p>}
         <Toggle k="my_best_buy_member" label="I am a My Best Buy member (60-day window)" />
         <Toggle k="digest_enabled" label="Daily digest" />
@@ -180,6 +190,14 @@ export default function SettingsPage() {
             onChange={(e) => set("min_claim_cents", Math.round(Number(e.target.value) * 100))} />
         </div>
         <Toggle k="auto_confirm_gtin" label="Auto-confirm listings whose GTIN/UPC matches exactly" />
+        <Toggle k="llm_match_enabled" label="Ask Claude Haiku about uncertain matches (scores 80 to 94)" />
+        {s.llm_match_enabled && !s.llm_available && (
+          <p className="text-xs text-amber-700">Set ANTHROPIC_API_KEY in .env to use this.</p>
+        )}
+        <p className="text-xs text-slate-500">
+          Sends only the item name, brand and model and the listing title to Anthropic. Answers are cached, so each pair is asked
+          once. Claude can reject a lookalike but never confirms a listing for you.
+        </p>
         <p className="text-xs text-slate-500">
           Providers are enabled by SERPAPI_KEY or BRIGHTDATA_API_KEY in .env. Results are cached for 7 days per query.
           SerpApi's free plan allows 250 searches a month.

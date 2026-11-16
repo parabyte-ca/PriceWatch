@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.0] - 2026-11-16
+### Added
+- Sale-mode readiness (System page): sale mode on, scheduler, hot items without a store, store links without a good check in 24 h, paused or weak stores, alert delivery for each person, browser sidecar, backup age, disk space, and a dry run of the faster schedule against each store's polite request limit
+- Automatic database copy in the 6 hours before each sale mode starts (`data/backups/pre-blackfriday-2026.sqlite`, kept outside the nightly rotation)
+- Board shows when a sale mode is on and flags items whose price may be stale
+- Basket page: pick items (BUY ones are picked to start) and get the cheapest split across stores after free-shipping thresholds, flat shipping, tax and perks, the saving against buying one by one, and "add $X for free shipping" tips. Exact for normal baskets, search for very large ones
+- Boxing Week mode (Dec 26 to 31 by default): the same faster schedule, second digest and alert window as Black Friday mode
+- Optional Claude Haiku second opinion on uncertain discovery matches (scores 80 to 94): needs `ANTHROPIC_API_KEY` and the household setting; it can turn down a lookalike but never confirms a listing; answers are cached; only the item name, brand and model and the listing title, merchant and condition are sent
+- Database migration 0007
+
 ## [0.7.0] - 2026-11-16
 ### Added
 - App notifications (Web Push) on each device from the installed app, with Open deal and Snooze 7 days buttons; Settings, "Notifications on this device". Needs HTTPS; on iPhone/iPad the app must be added to the home screen (iOS 16.4+). VAPID keys are created once in the data folder

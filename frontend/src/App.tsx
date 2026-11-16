@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api } from "./api";
 import AddItem from "./pages/AddItem";
+import Basket from "./pages/Basket";
 import Board from "./pages/Board";
 import Lists from "./pages/Lists";
 import Purchases from "./pages/Purchases";
@@ -23,6 +24,7 @@ interface Me {
 const nav = [
   ["/", "Wishlist"],
   ["/board", "Board"],
+  ["/basket", "Basket"],
   ["/add", "Add"],
   ["/lists", "Lists"],
   ["/purchases", "Bought"],
@@ -97,6 +99,7 @@ export default function App() {
         <Route path="/add" element={<AddItem />} />
         <Route path="/share" element={<AddItem />} />
         <Route path="/board" element={<Board />} />
+        <Route path="/basket" element={<Basket />} />
         <Route path="/lists" element={<Lists />} />
         <Route path="/purchases" element={<Purchases />} />
         <Route path="/savings" element={<Savings />} />
