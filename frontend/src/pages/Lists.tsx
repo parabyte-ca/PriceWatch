@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { api, money, toCents, toDollars } from "../api";
 import { ListInfo } from "../session";
 
@@ -79,8 +80,9 @@ export default function Lists() {
       {lists.map((l) => (
         <div key={l.id} className="card space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold">{l.name}</h2>
+            <Link to={`/?list=${l.id}`} className="text-lg font-semibold hover:underline">{l.name}</Link>
             <span className="text-xs text-slate-500">{l.items} items · you are {l.role}</span>
+            <Link to={`/?list=${l.id}`} className="btn-primary px-2 py-1 text-xs">View items</Link>
             {l.role === "owner" && (
               <button className="btn-ghost ml-auto px-2 py-1 text-xs" onClick={() => {
                 const n = prompt("New name", l.name);
