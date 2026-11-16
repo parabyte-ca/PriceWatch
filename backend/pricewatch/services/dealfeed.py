@@ -81,16 +81,19 @@ def retailer_for_tag(db: Session, tag: str | None) -> Retailer | None:
     return None
 
 
-def match_items(db: Session, text: str, threshold: float) -> list[tuple[Item, float]]:
-    hits = []
+def _pairs(db: Session, text: str, threshold: float):
     cand = Candidate(title=text, url="https://forums.redflagdeals.com/")
     for item in db.scalars(select(Item).where(Item.active.is_(True))).all():
         spec = ItemSpec.from_item(item)
         spec.exclude_marketplace = False  # the thread link is RFD, not a marketplace
-        r = match(spec, cand, threshold)
-        if r.accepted:
-            hits.append((item, r.confidence))
-    return hits
+        yield item, spec, cand, match(spec, cand, threshold)
+
+
+def match_items(db: Session, text: str, threshold: float) -> list[tuple[Item, float]]:
+    from . import llm_match
+
+    return [(item, r.confidence) for item, spec, cand, r in _pairs(db, text, threshold)
+            if r.accepted and not llm_match.vetoed(db, spec, cand, r)]
 
 
 def ingest(db: Session, entries: list[dict]) -> dict:
@@ -160,4 +163,12 @@ async def poll(db: Session) -> dict:
     if result.outcome != "ok" or not result.html:
         log.info("deal feed fetch failed", extra={"outcome": result.outcome, "error": result.error})
         return {"outcome": result.outcome, "error": result.error}
-    return ingest(db, parse_feed(result.html))
+    entries = parse_feed(result.html)
+    from . import llm_match
+
+    if llm_match.enabled(db):
+        threshold = float(settings_store.get(db, "deal_feed_threshold") or 82)
+        new = [e for e in entries if not db.scalar(select(DealFeedEntry.id).where(DealFeedEntry.guid == e["guid"][:500]))]
+        pairs = [(spec, cand, r) for e in new for _item, spec, cand, r in _pairs(db, split_title(e["title"])[1], threshold)]
+        await llm_match.prefetch(db, pairs)
+    return ingest(db, entries)

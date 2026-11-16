@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..models import FlyerMatch, Item
 from ..timeutil import utcnow
-from . import runtime, settings_store
+from . import llm_match, runtime, settings_store
 from .matching import Candidate, ItemSpec, match
 
 log = logging.getLogger(__name__)
@@ -83,9 +83,9 @@ def ingest(db: Session, item: Item, rows: list[dict], postal: str) -> list[Flyer
     for r in rows:
         if r["valid_to"] and r["valid_to"] < now:
             continue
-        res = match(spec, Candidate(title=r["title"], url=r["url"], price_cents=r["price_cents"],
-                                    merchant=r["merchant"]), threshold)
-        if not res.accepted:
+        cand = Candidate(title=r["title"], url=r["url"], price_cents=r["price_cents"], merchant=r["merchant"])
+        res = match(spec, cand, threshold)
+        if not res.accepted or llm_match.vetoed(db, spec, cand, res):
             continue
         if db.scalar(select(FlyerMatch.id).where(FlyerMatch.item_id == item.id,
                                                  FlyerMatch.flyer_item_id == r["id"])):
@@ -133,7 +133,15 @@ async def poll(db: Session, force: bool = False) -> dict:
                 log.info("flyer search stopped", extra={"outcome": result.outcome})
                 break
             continue
-        stats["matches"] += len(ingest(db, item, parse_items(result.html), postal))
+        rows = parse_items(result.html)
+        if llm_match.enabled(db):
+            spec = ItemSpec.from_item(item)
+            spec.exclude_marketplace = False
+            threshold = float(settings_store.get(db, "match_threshold") or 85)
+            cands = [Candidate(title=r["title"], url=r["url"], price_cents=r["price_cents"], merchant=r["merchant"])
+                     for r in rows]
+            await llm_match.prefetch(db, [(spec, c, match(spec, c, threshold)) for c in cands])
+        stats["matches"] += len(ingest(db, item, rows, postal))
     log.info("flyer poll", extra=stats)
     return stats
 

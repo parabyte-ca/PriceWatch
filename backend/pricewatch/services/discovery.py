@@ -58,7 +58,7 @@ def _candidate_dict(c: Candidate) -> dict:
             "brand": c.brand, "provider": c.provider, "extra": c.extra}
 
 
-async def run_search(db: Session, item: Item, provider: SerpProvider, query: str, force: bool,
+async def run_search(db: Session, item: Item | None, provider: SerpProvider, query: str, force: bool,
                      client: httpx.AsyncClient | None) -> tuple[list[Candidate], bool]:
     """Return (candidates, cached). Uses a 7-day cache and enforces the monthly limit."""
     if not force:
@@ -75,7 +75,7 @@ async def run_search(db: Session, item: Item, provider: SerpProvider, query: str
         raise DiscoveryError(f"Monthly search limit reached for {provider.name} ({used}/{limit}); raise it in Settings")
     own_client = client is None
     client = client or httpx.AsyncClient()
-    record = SerpSearch(provider=provider.name, query=query, item_id=item.id)
+    record = SerpSearch(provider=provider.name, query=query, item_id=item.id if item else None)
     try:
         candidates = await provider.search(query, client)
         record.result_count = len(candidates)
@@ -153,3 +153,28 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
     return {"provider": provider.name, "query": query, "cached": cached, "added": added,
             "usage": month_usage(db, provider.name), "limit": int(cfg["serp_monthly_limit"] or 0),
             "candidates": out}
+
+
+async def barcode_lookup(db: Session, code: str) -> dict:
+    """Search Google Shopping for a scanned UPC/EAN and return likely product names (one cached search)."""
+    from .matching import normalize_gtin
+
+    digits = "".join(ch for ch in code if ch.isdigit())
+    gtin = normalize_gtin(digits)
+    if gtin is None:
+        raise DiscoveryError("That is not a valid UPC or EAN barcode")
+    provider = get_provider(None)
+    if provider is None:
+        return {"gtin": digits, "provider": None, "names": []}
+    candidates, cached = await run_search(db, None, provider, digits, False, None)
+    names: list[dict] = []
+    seen: set[str] = set()
+    for c in candidates:
+        key = c.title.lower().strip()
+        if not c.title or key in seen:
+            continue
+        seen.add(key)
+        names.append({"title": c.title[:300], "brand": c.brand, "exact": normalize_gtin(c.gtin) == gtin,
+                      "merchant": c.merchant, "price_cents": c.price_cents})
+    names.sort(key=lambda n: not n["exact"])
+    return {"gtin": digits, "provider": provider.name, "cached": cached, "names": names[:6]}
