@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.14.0-blue)
+![Version](https://img.shields.io/badge/version-0.15.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,7 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- Reads prices from stores that block automated checks (Best Buy, Walmart, Canadian Tire) through Claude, within a monthly cap you set
 - Finds the same product at other Canadian stores automatically (Claude web search or SerpApi), tracks exact matches and lets you confirm close ones
 - Ask PriceWatch: plain-language questions about your lists and prices, answered by Claude from your own data (key saved in Household admin)
 - Family link: share a gift list read-only, no account needed; price-match card to show at the till; edit or move any item

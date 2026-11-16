@@ -33,6 +33,7 @@ MAX_RETRY_AFTER = 24 * 3600
 CONFIDENCE = {"jsonld": 0.95, "css": 0.9, "microdata": 0.85, "opengraph": 0.7, "keepa": 0.99,
               "changedetection": 0.9, "manual": 1.0, "bestbuy_api": 0.95,
               "embedded_json": 0.9}
+CLAUDE_FALLBACK_STATUSES = ("blocked", "no_price", "robots")
 SKIP_MODES = ("manual", "changedetection")
 
 
@@ -320,6 +321,38 @@ def apply_autofill(item: Item, name: str | None, brand: str | None, model: str |
     item.autofill = False
 
 
+async def claude_fallback(db: Session, src: SourceLink, retailer: Retailer | None) -> dict | None:
+    """Read the price through Claude when the store blocked the direct check. Returns the previous state, or None."""
+    from . import claude_price
+
+    ok, _ = claude_price.ready()
+    if not ok:
+        return None
+    since = utcnow() - timedelta(hours=claude_price.MIN_HOURS)
+    recent = db.scalar(select(func.count()).select_from(Observation).where(
+        Observation.source_link_id == src.id, Observation.method == "claude", Observation.observed_at >= since))
+    if recent:
+        return None
+    name = src.title or (src.item.name if src.item else None)
+    try:
+        found = await claude_price.lookup(src.url, name)
+    except claude_price.Unavailable:
+        return None
+    except Exception:  # noqa: BLE001  never let the fallback break a check
+        log.exception("claude price lookup failed", extra={"source_id": src.id})
+        return None
+    if found is None:
+        return None
+    if found.title and not src.title:
+        src.title = found.title[:500]
+    _, previous = record_observation(
+        db, src, price_cents=found.price_cents, was_price_cents=found.was_price_cents, shipping_cents=None,
+        in_stock=found.in_stock, seller=retailer.name if retailer else None, method="claude",
+        parse_confidence=found.confidence)
+    src.last_error = None
+    return previous
+
+
 async def check_source(source_id: int) -> str:
     """Check one source link. Returns the outcome string."""
     db = session_scope()
@@ -336,7 +369,17 @@ async def check_source(source_id: int) -> str:
             return "skipped"
         now = utcnow()
         if retailer and retailer.backoff_until and retailer.backoff_until > now:
+            # the store is paused after blocks: PriceWatch does not knock again, but Claude may read the price
+            previous = await claude_fallback(db, src, retailer)
             src.next_check_at = retailer.backoff_until + timedelta(seconds=random.randint(30, 300))
+            if previous is not None:
+                db.add(FetchRun(source_link_id=src.id, domain=domain, started_at=now, duration_ms=0, status="ok",
+                                method="claude"))
+                FETCH_TOTAL.labels(domain=domain, status="ok", method="claude").inc()
+                schedule_next(src, None, db)
+                db.commit()
+                run_alerts(db, src, previous, None)
+                return "ok"
             db.commit()
             return "backoff"
         started = utcnow()
@@ -396,12 +439,24 @@ async def check_source(source_id: int) -> str:
                     method="not_modified", seller_type=src.last_seller_type or "first_party",
                     condition=src.last_condition or "new", parse_confidence=1.0)
 
+        if status in CLAUDE_FALLBACK_STATUSES and mode != "keepa":
+            t0 = time.monotonic()
+            fallback_prev = await claude_fallback(db, src, retailer)
+            if fallback_prev is not None:
+                # note the direct block for the breaker, but the price itself came in
+                if status == "blocked" and register_block(db, retailer, result.retry_after) and retailer is not None:
+                    alerts.domain_blocked(db, retailer)
+                previous, status, method, error = fallback_prev, "ok", "claude", None
+                elapsed += int((time.monotonic() - t0) * 1000)
+                src.consecutive_failures = 0
+
         db.add(FetchRun(source_link_id=src.id, domain=domain, started_at=started, duration_ms=elapsed,
                         status=status, http_status=http_status, method=method, error=error))
         FETCH_TOTAL.labels(domain=domain, status=status, method=method).inc()
 
         if status in ("ok", "not_modified", "excluded"):
-            reset_blocks(retailer)
+            if method != "claude":
+                reset_blocks(retailer)
         else:
             # never write a price on failure: freshness only
             src.last_checked_at = utcnow()

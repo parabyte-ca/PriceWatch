@@ -10,6 +10,7 @@ interface Preview {
   outcome: string;
   error: string | null;
   method: string;
+  claude?: { used: boolean; found?: boolean; seen_on?: string; reason?: string } | null;
   product: { name: string | null; price_cents: number | null; was_price_cents: number | null; image: string | null;
     brand: string | null; mpn: string | null; gtin: string | null; in_stock: boolean | null; currency: string | null } | null;
 }
@@ -131,16 +132,25 @@ export default function AddItem() {
                     <span className="text-lg font-bold">{money(p.price_cents)}</span>
                     {p.was_price_cents && <span className="ml-2 text-slate-500 line-through">{money(p.was_price_cents)}</span>}
                     {p.in_stock === false && <span className="ml-2 text-amber-600">out of stock</span>}
+                    {preview.method === "claude" && (
+                      <div className="text-xs text-slate-500">
+                        Read by Claude from {preview.claude?.seen_on === "product_page" ? "the store's page" : "the store's search results"}, because{" "}
+                        {preview.retailer} blocks PriceWatch's own check. Scheduled checks will keep using Claude for this store.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="text-amber-700">
                     No price found yet. {preview.outcome === "blocked"
-                      ? `${preview.retailer} showed a "Robot or human?" style check instead of the product. PriceWatch does not try to get past those checks, so this store may need prices logged by hand.`
+                      ? `${preview.retailer} showed a "Robot or human?" style check instead of the product. PriceWatch does not try to get past those checks.`
                       : preview.method === "browser"
                       ? "The store's page did not show a price to the browser in time; it may be slow or blocking automated visits."
                       : "The page has no readable price without a browser."}{" "}
-                    You can still save it: PriceWatch keeps trying on its schedule, and you can log prices by hand on the item page.
-                    An admin can run System, "Test a product page" with this URL and save a fixture so a parser can be added.
+                    {preview.claude?.used && !preview.claude.found && <> {preview.claude.reason}.</>}
+                    {preview.claude && !preview.claude.used && (preview.claude.reason === "no Claude key saved"
+                      ? <> Add a Claude key in Household admin and PriceWatch will read prices from stores like this one for you.</>
+                      : <> Claude was not asked: {preview.claude.reason}.</>)}{" "}
+                    You can still save it: PriceWatch keeps trying on its schedule and looks for the same product at other stores.
                     <details className="mt-1 text-xs text-slate-500"><summary className="cursor-pointer">Details</summary><span className="break-all">{preview.error || preview.outcome}</span></details>
                   </div>
                 )}

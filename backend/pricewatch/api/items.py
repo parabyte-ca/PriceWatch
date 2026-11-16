@@ -1,5 +1,6 @@
 """Wishlist items, source links, history and manual prices."""
 
+import logging
 import re
 from datetime import timedelta
 
@@ -48,6 +49,7 @@ from ..services.retailers import get_or_create_retailer
 from ..services.summary import _source_landed, summarize_items
 from ..timeutil import utcnow
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["items"])
 
 
@@ -84,6 +86,9 @@ def source_out(src: SourceLink, province: str, db: Session | None = None) -> Sou
     policy = policy_for(db, src.retailer.domain) if db is not None and src.retailer else None
     out.price_match = bool(policy and policy.enabled and policy.competitor_match)
     out.landed = _source_landed(src, province)
+    if db is not None and src.last_price_cents is not None:
+        out.last_method = db.scalar(select(Observation.method).where(Observation.source_link_id == src.id)
+                                    .order_by(Observation.observed_at.desc(), Observation.id.desc()).limit(1))
     return out
 
 
@@ -183,6 +188,11 @@ async def preview(body: UrlIn, db: Session = Depends(get_db),
         outcome, error = "blocked", "The store showed a bot check instead of the product page"
     parsed = parsed or ParsedProduct()
     parsed.name = clean_name(parsed.name, url, retailer.name)
+    claude_note = None
+    if not parsed.has_price and outcome in ("ok", "blocked", "robots"):
+        claude_note = await _claude_preview(url, parsed)
+        if parsed.has_price:
+            method = "claude"
     return {
         "url": url,
         "domain": domain_of(url),
@@ -190,8 +200,32 @@ async def preview(body: UrlIn, db: Session = Depends(get_db),
         "outcome": outcome,
         "error": error,
         "method": method,
+        "claude": claude_note,
         "product": parsed.to_dict() if parsed else None,
     }
+
+
+async def _claude_preview(url: str, parsed) -> dict:
+    """Store blocked or showed no price: ask Claude to read it, so the household sees a price straight away."""
+    from ..services import claude_price
+
+    ok, why = claude_price.ready()
+    if not ok:
+        return {"used": False, "reason": why}
+    try:
+        found = await claude_price.lookup(url, parsed.name)
+    except claude_price.Unavailable as exc:
+        return {"used": False, "reason": str(exc)}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("claude preview failed: %s", exc)
+        return {"used": True, "found": False, "reason": "Claude could not be reached"}
+    if found is None:
+        return {"used": True, "found": False, "reason": "Claude could not see a price for this product either"}
+    parsed.price_cents, parsed.was_price_cents, parsed.in_stock = found.price_cents, found.was_price_cents, found.in_stock
+    parsed.currency, parsed.source = "CAD", "claude"
+    if found.title and (not parsed.name or len(parsed.name) < 8):
+        parsed.name = found.title
+    return {"used": True, "found": True, "seen_on": found.seen_on, "cost_usd": round(found.usd, 4)}
 
 
 async def _keepa_preview(url: str, retailer) -> dict:

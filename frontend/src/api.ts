@@ -92,6 +92,7 @@ export interface Source {
   consecutive_failures: number;
   next_check_at: string | null;
   landed: Landed | null;
+  last_method?: string | null;
 }
 
 export interface PriceMatch {

@@ -63,8 +63,14 @@ class ClaudeWebProvider:
     async def search(self, query: str, client: httpx.AsyncClient | None = None) -> list[Candidate]:
         import anthropic
 
+        from ..services import claude
+
+        left = claude.budget_left()
+        if left is not None and left < 0.05:
+            raise ProviderError("this month's Claude spending cap is reached")
         api = self.client_factory()
         msgs: list = [{"role": "user", "content": f"Product: {query}"}]
+        usd, searches = 0.0, 0
         try:
             for _ in range(4):  # a long server-side search can pause; resend to let it continue
                 try:
@@ -75,6 +81,9 @@ class ClaudeWebProvider:
                     raise ProviderError(f"Claude web search failed (HTTP {exc.status_code})") from exc
                 except anthropic.APIConnectionError as exc:
                     raise ProviderError("could not reach api.anthropic.com") from exc
+                usd += claude.cost_usd(self.model, getattr(resp, "usage", None))
+                stu = getattr(getattr(resp, "usage", None), "server_tool_use", None)
+                searches += (getattr(stu, "web_search_requests", 0) or 0) if stu is not None else 0
                 if resp.stop_reason == "refusal":
                     return []
                 report = next((b for b in resp.content if b.type == "tool_use" and b.name == "report_listings"), None)
@@ -85,6 +94,7 @@ class ClaudeWebProvider:
                 msgs.append({"role": "assistant", "content": resp.content})
             return []
         finally:
+            claude.record_spend(usd, searches=searches)
             await api.close()
 
     def _candidates(self, data: dict) -> list[Candidate]:

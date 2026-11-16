@@ -102,6 +102,7 @@ class SourceOut(BaseModel):
     consecutive_failures: int
     next_check_at: UTCDateTime | None
     landed: dict | None = None
+    last_method: str | None = None
 
 
 class ItemOut(ItemBase):
