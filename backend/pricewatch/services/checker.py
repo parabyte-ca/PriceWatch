@@ -370,6 +370,9 @@ async def check_source(source_id: int) -> str:
                 page_html = result.html
                 if method == "http":
                     src.etag, src.last_modified = result.etag, result.last_modified
+                from ..adapters.base import clean_name
+
+                parsed.name = clean_name(parsed.name, src.url, retailer.name if retailer else None)
                 if parsed.name and not src.title:
                     src.title = parsed.name[:500]
                 if src.item.autofill:

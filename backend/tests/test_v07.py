@@ -149,12 +149,12 @@ def test_deliver_counts_push_as_sent(client, monkeypatch):
 
 
 def test_diagnose_reports_and_saves_fixture(client, pages):
-    r = client.post("/api/admin/diagnose", json={"url": "https://www.sportchek.ca/p/1", "save_fixture": True}).json()
+    r = client.post("/api/admin/diagnose", json={"url": "https://www.memoryexpress.com/p/1", "save_fixture": True}).json()
     assert r["robots_allowed"] is True and r["http"]["outcome"] == "ok"
     assert r["http"]["parsed"]["price_cents"] == 44999 and r["verdict"] == "ok"
-    assert r["fixture"].startswith("data/fixtures/sportchek.ca-")
+    assert r["fixture"].startswith("data/fixtures/memoryexpress.com-")
     pages["/p/2"] = "<html><body>Just a moment... checking your browser</body></html>"
-    r = client.post("/api/admin/diagnose", json={"url": "https://www.sportchek.ca/p/2"}).json()
+    r = client.post("/api/admin/diagnose", json={"url": "https://www.memoryexpress.com/p/2"}).json()
     assert r["verdict"] != "ok"
 
 
