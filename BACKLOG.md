@@ -31,14 +31,16 @@ Items not yet scheduled into a phase. Newest first.
 
 ## Feature ideas (2026-11-16)
 
-Done in v0.7.0: Web Push, spend and savings dashboard, weekly flyer matching. Still open: Home Assistant sensors,
-barcode scan to add, price-drop forecasting from history, basket optimiser, Boxing Week mode.
+Done in v0.7.0: Web Push, spend and savings dashboard, weekly flyer matching. Done in v0.8.0: Black Friday
+hardening (readiness, load dry run, pre-event backup, stale flags), basket optimiser, Boxing Week mode, Claude Haiku
+match check (discovery only). Still open: Home Assistant sensors, barcode scan to add, price-drop forecasting,
+Claude check for the deal feed and flyers, weekly report with a Claude summary.
 
 ## Phase 4 (after Cyber Monday)
 
-LLM match confirmation (Claude, Haiku-class, fuzzy 80 to 94 only, cached, user confirms), barcode scan,
-email-forward ingestion, Home Assistant sensors, weekly report with a Claude summary, Boxing Week mode
-(Dec 26 to 31), basket optimiser for free-shipping thresholds. Re-read Visualping's 2026 results (published
+LLM match confirmation DONE in v0.8.0 (discovery). Barcode scan,
+email-forward ingestion, Home Assistant sensors, weekly report with a Claude summary. (Boxing Week mode and the
+basket optimiser DONE in v0.8.0.) Re-read Visualping's 2026 results (published
 Nov 27) and adjust the buy thresholds.
 
 ## RedFlagDeals intelligence (requested 2026-11-15) - DONE in v0.5.0 and v0.7.0 (rule-based; optional LLM summary not built)

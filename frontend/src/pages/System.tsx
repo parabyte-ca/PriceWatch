@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ago, api, localTime, money, toCents, toDollars } from "../api";
+import Readiness from "../components/Readiness";
 import { Diagnose, Perks } from "../components/Tools";
 import Updates from "../components/Updates";
 import { useSession } from "../session";
@@ -59,6 +60,7 @@ export default function SystemPage() {
 
   return (
     <div className="space-y-4">
+      {user?.role === "admin" && <Readiness />}
       {user?.role === "admin" && <Updates />}
       {user?.role === "admin" && <Diagnose />}
       <Perks admin={user?.role === "admin"} />

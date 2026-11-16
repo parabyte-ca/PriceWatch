@@ -37,11 +37,33 @@ def _parse_local(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=tz())
 
 
-def blackfriday_active(cfg: dict, now_utc: datetime | None = None) -> bool:
-    if not cfg.get("blackfriday_mode", True):
-        return False
+SALE_MODES = (
+    ("Black Friday", "blackfriday_mode", "blackfriday_start", "blackfriday_end"),
+    ("Boxing Week", "boxingweek_mode", "boxingweek_start", "boxingweek_end"),
+)
+
+
+def sale_windows(cfg: dict) -> list[tuple[str, datetime, datetime]]:
+    """Enabled sale-mode windows as (name, start, end) in local time."""
+    out = []
+    for name, flag, start, end in SALE_MODES:
+        if cfg.get(flag, True) and cfg.get(start) and cfg.get(end):
+            out.append((name, _parse_local(cfg[start]), _parse_local(cfg[end])))
+    return out
+
+
+def sale_mode(cfg: dict, now_utc: datetime | None = None) -> str | None:
+    """Name of the sale mode running now (Black Friday or Boxing Week), or None."""
     now = local_now(now_utc)
-    return _parse_local(cfg["blackfriday_start"]) <= now <= _parse_local(cfg["blackfriday_end"])
+    for name, start, end in sale_windows(cfg):
+        if start <= now <= end:
+            return name
+    return None
+
+
+def blackfriday_active(cfg: dict, now_utc: datetime | None = None) -> bool:
+    """True while any sale mode runs: 30-minute checks for top hot items, second digest, 2-hour alert window."""
+    return sale_mode(cfg, now_utc) is not None
 
 
 def blackfriday_item_ids(db: Session) -> set[int]:

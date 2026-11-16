@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     brightdata_zone: str = Field(
         default="serp_api1", validation_alias=AliasChoices("BRIGHTDATA_ZONE", "PRICEWATCH_BRIGHTDATA_ZONE"))
 
+    # optional: Claude Haiku second opinion on uncertain product matches (household setting must also be on)
+    anthropic_api_key: str | None = Field(default=None, validation_alias=AliasChoices("ANTHROPIC_API_KEY"))
+    llm_match_model: str = Field(default="claude-haiku-5-5", validation_alias=AliasChoices("PRICEWATCH_LLM_MATCH_MODEL"))
+
     keepa_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("KEEPA_API_KEY", "PRICEWATCH_KEEPA_API_KEY"))
     changedetection_url: str | None = Field(

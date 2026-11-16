@@ -2,13 +2,14 @@
 
 import asyncio
 import logging
+from datetime import timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import or_, select
 
 from .db import session_scope
 from .models import Item, Purchase, SourceLink
-from .services import alerts, changedetection, events, protection, runtime
+from .services import alerts, changedetection, events, protection, runtime, settings_store
 from .services.checker import check_source
 from .timeutil import utcnow
 
@@ -104,6 +105,33 @@ async def nightly_backup() -> None:
         log.exception("nightly backup failed")
 
 
+async def pre_event_backup() -> None:
+    """One extra database copy in the 6 hours before each sale mode starts (kept apart from the nightly rotation)."""
+    from .backup import vacuum_into
+    from .config import get_settings
+
+    s = get_settings()
+    if not s.db_url.startswith("sqlite"):
+        return
+    db = session_scope()
+    try:
+        cfg = settings_store.get_all(db)
+    finally:
+        db.close()
+    now = events.local_now()
+    for name, start, _end in events.sale_windows(cfg):
+        if timedelta(0) <= start - now <= timedelta(hours=6):
+            dest = s.data_dir / "backups" / f"pre-{name.lower().replace(' ', '')}-{start:%Y}.sqlite"
+            if dest.exists():
+                continue
+            try:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                await asyncio.to_thread(vacuum_into, dest, 10_000)
+                log.info("pre-event backup", extra={"event": name, "path": str(dest)})
+            except Exception:  # noqa: BLE001
+                log.exception("pre-event backup failed")
+
+
 async def deal_feed() -> None:
     from .services import dealfeed
 
@@ -152,6 +180,7 @@ def start() -> AsyncIOScheduler:
                        coalesce=True)
     _scheduler.add_job(deal_feed, "interval", minutes=15, id="deal_feed", max_instances=1, coalesce=True)
     _scheduler.add_job(flyers, "interval", hours=1, id="flyers", max_instances=1, coalesce=True)
+    _scheduler.add_job(pre_event_backup, "interval", minutes=15, id="pre_event_backup", max_instances=1, coalesce=True)
     _scheduler.start()
     return _scheduler
 

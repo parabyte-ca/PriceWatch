@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..models import Item, SerpSearch, SourceLink
 from ..serp import ProviderError, SerpProvider, get_provider
 from ..timeutil import utcnow
-from . import settings_store
+from . import llm_match, settings_store
 from .matching import Candidate, ItemSpec, match, normalize_url
 from .retailers import get_or_create_retailer
 
@@ -105,6 +105,7 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
     spec = ItemSpec.from_item(item)
     existing = {normalize_url(s.url): s for s in item.sources}
     threshold = float(cfg["match_threshold"])
+    use_llm = llm_match.enabled(db)
     out, seen = [], set()
     added = 0
     for cand in candidates:
@@ -113,9 +114,15 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
             continue
         seen.add(url)
         result = match(spec, cand, threshold)
+        ai = None
+        if use_llm and result.accepted and result.method == "fuzzy" and llm_match.in_band(result.confidence):
+            ai = await llm_match.check(db, spec, cand)
+            if ai and not ai["same_product"]:
+                result.accepted = False
+                result.reasons = [*result.reasons, f"Claude: not the same product ({ai['reason']})"]
         row = {"title": cand.title, "url": url, "merchant": cand.merchant, "price_cents": cand.price_cents,
                "confidence": result.confidence, "method": result.method, "accepted": result.accepted,
-               "reasons": result.reasons, "exclusions": result.exclusions}
+               "reasons": result.reasons, "exclusions": result.exclusions, "ai": ai}
         if not _is_merchant_url(url):
             row["status"] = "no merchant link"
         elif url in existing:
@@ -131,7 +138,7 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
                 match_method=result.method, discovered_via=provider.name,
                 match_reasons={"reasons": result.reasons, "exclusions": result.exclusions,
                                "serp_price_cents": cand.price_cents, "merchant": cand.merchant,
-                               "query": query},
+                               "query": query, "ai": ai},
             )
             db.add(src)
             db.flush()
