@@ -62,8 +62,8 @@ def payload(alert: Alert) -> dict:
             "item_id": alert.item_id}
     if alert.item_id:
         data["item_url"] = f"/items/{alert.item_id}"
-        data["snooze_url"] = f"{base}/api/actions/{action_token(alert.item_id, 'snooze', alert.user_id)}" \
-            if base else f"/api/actions/{action_token(alert.item_id, 'snooze', alert.user_id)}"
+        data["snooze_url"] = f"{base}/api/actions/{action_token(alert.item_id, 'snooze', alert.user_id)}"
+        data["bought_url"] = f"{base}/api/actions/{action_token(alert.item_id, 'bought', alert.user_id)}"
     return data
 
 

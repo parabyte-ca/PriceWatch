@@ -114,7 +114,9 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
     if provider is None:
         raise DiscoveryError("No search provider configured. Set SERPAPI_KEY in .env or add a Claude key")
     r = await compare(db, item, provider, force=force, client=client)
+    dropped = drop_wrong_generation(db, item)
     market = save_offers(db, item, r["offers"], query=r["query"])
+    market["dropped"] = dropped
     db.commit()
     log.info("discovery", extra={"item_id": item.id, "provider": provider.name, "cached": r["cached"],
                                  "candidates": len(r["candidates"]), "added": market["added"]})
@@ -124,13 +126,15 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
 
 
 async def compare(db: Session, item: Item, provider, *, force: bool = False,
-                  client: httpx.AsyncClient | None = None) -> dict:
+                  client: httpx.AsyncClient | None = None, on_stage=None) -> dict:
     """Search and match, without saving anything: the candidates, the matching offers and notes.
 
     ``item`` may be unsaved (the Find page compares before anything is watched); searches are cached for a week, so
     watching right after a comparison costs no second search.
     """
     cfg = settings_store.get_all(db)
+    if hasattr(provider, "location"):
+        provider.location = cfg.get("shopping_location") or "Canada"
     query = build_query(item)
     candidates, cached = await run_search(db, item if item.id else None, provider, query, force, client)
 
@@ -172,12 +176,22 @@ async def compare(db: Session, item: Item, provider, *, force: bool = False,
             offers.append({"merchant": merchant, "title": cand.title, "price_cents": cand.price_cents,
                            "shipping_cents": cand.shipping_cents, "url": url, "store_link": store_link,
                            "provider": via, "confidence": result.confidence, "domain": domain, "kind": kind,
-                           "method": result.method, "reasons": result.reasons, "ai": ai})
+                           "method": result.method, "reasons": result.reasons, "ai": ai,
+                           "local": (cand.extra or {}).get("local")})
         out.append(row)
         return row
 
+    wrong = rejected_listings(db, query, item.id)
+
+    async def stage(name: str) -> None:
+        if on_stage is not None:
+            await on_stage(name, offers)
+
     for cand in candidates:
+        if normalize_url(cand.url) in wrong:
+            continue
         await consider(cand, provider.name)
+    await stage("search")
 
     # Google Shopping hides store links behind its own product pages. Open the best matching products' store
     # lists (one search each, cached) so the stores' own product pages can be tracked.
@@ -194,7 +208,22 @@ async def compare(db: Session, item: Item, provider, *, force: bool = False,
                 break
             for cand in stores:
                 cand.title = cand.title or row["title"]
-                await consider(cand, provider.name)
+                if normalize_url(cand.url) not in wrong:
+                    await consider(cand, provider.name)
+        await stage("stores")
+
+    # eBay Canada (official API, optional): new fixed-price listings, shown with the marketplace sellers
+    from ..serp.ebay import ebay_provider
+
+    ebay = ebay_provider()
+    if ebay is not None:
+        try:
+            listings, _ = await run_search(db, item if item.id else None, ebay, query, force, client)
+            for cand in listings:
+                if normalize_url(cand.url) not in wrong:
+                    await consider(cand, "ebay")
+        except DiscoveryError as exc:
+            notes.append(f"eBay: {exc}")
 
     # still nothing with a real store link: ask Claude's web search, which returns the stores' own pages
     linked = [r for r in out if _is_merchant_url(r["url"]) and r["accepted"]]
@@ -204,14 +233,65 @@ async def compare(db: Session, item: Item, provider, *, force: bool = False,
             try:
                 extra, _ = await run_search(db, item, claude_web, query, force, client)
                 for cand in extra:
-                    await consider(cand, "claude")
+                    if normalize_url(cand.url) not in wrong:
+                        await consider(cand, "claude")
+                await stage("claude")
             except DiscoveryError as exc:
                 notes.append(f"Claude search: {exc}")
 
+    # Claude sorts out bundles, accessories, refurbished units and marketplace sellers the matcher let through
+    from . import classify
+
+    labels = await classify.classify(db, spec, [o for o in offers if o["kind"] in ("store", "other")])
+    for o in offers:
+        lab = labels.get(o["url"])
+        if lab and lab != "same":
+            o["kind"] = lab
+            o["reasons"] = [*o["reasons"], f"Claude: {lab}"]
+    for r in out:
+        lab = labels.get(r["url"])
+        if lab and lab != "same":
+            r["kind"], r["status"] = lab, f"excluded ({lab})"
+    await stage("done")
     for r in out:
         r.pop("token", None)
     out.sort(key=lambda r: (not r["accepted"], -r["confidence"]))
     return {"query": query, "cached": cached, "candidates": out, "offers": offers, "notes": notes}
+
+
+def drop_wrong_generation(db: Session, item: Item) -> int:
+    """Hide watched stores found by search whose listing is another generation ("Switch" for a "Switch 2" item).
+
+    Catches stores matched before the generation check existed; stores added by hand are left alone.
+    """
+    from .matching import generation_conflict
+
+    want = " ".join(x for x in (item.name, item.model) if x)
+    n = 0
+    for src in item.sources:
+        if src.status != "confirmed" or not src.discovered_via or not src.title:
+            continue
+        why = generation_conflict(want, src.title)
+        if why:
+            src.status = "rejected"
+            src.last_error = f"Hidden: the listing is a different generation ({why})"
+            n += 1
+    if n:
+        db.commit()
+    return n
+
+
+def rejected_listings(db: Session, query: str, item_id: int | None) -> set[str]:
+    """Listings the household marked "not this product" for this item or this search."""
+    from ..models import ListingFeedback
+
+    q = select(ListingFeedback.url).where(ListingFeedback.verdict == "wrong")
+    conds = [ListingFeedback.query == query.lower().strip()]
+    if item_id:
+        conds.append(ListingFeedback.item_id == item_id)
+    from sqlalchemy import or_
+
+    return {u for u in db.scalars(q.where(or_(*conds))).all()}
 
 
 def best_per_store(offers: list[dict]) -> list[dict]:
@@ -254,7 +334,7 @@ def save_offers(db: Session, item: Item, offers: list[dict], *, query: str = "")
         row = MarketOffer(item_id=item.id, merchant=o["merchant"][:120], title=(o["title"] or "")[:500],
                           price_cents=o["price_cents"], shipping_cents=o["shipping_cents"], url=o["url"][:1000],
                           store_link=o["store_link"], provider=o["provider"][:30], confidence=o["confidence"],
-                          seen_at=now, domain=o["domain"], kind=o["kind"])
+                          seen_at=now, domain=o["domain"], kind=o["kind"], local_note=o.get("local"))
         db.add(row)
         rows.append(row)
     db.flush()

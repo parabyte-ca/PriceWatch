@@ -143,6 +143,49 @@ class MatchResult:
     exclusions: list[str] = field(default_factory=list)
 
 
+ROMAN = {"ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10}
+UNIT_AFTER = (r"(?:\"|in\b|inch|-inch|gb|tb|mb|pack|pk|pc|pcs|piece|mm|cm|m\b|l\b|qt|w\b|v\b|hz|k\b|x\b|%|lb|oz|ft"
+              r"|cup|year|yr|month|day|hour|h\b|player|person|seat|ct\b|quart|litre|liter|gallon|ounce|pound|slice|speed"
+              r"|serving|core|port|outlet|burner|blade|tier|drawer|door|piece|count|in-1|in 1\b|-in-1|ply|layer)")
+GEN_PAIR = re.compile(r"\b([a-z][a-z+]{1,})\s+(\d{1,2}|ii|iii|iv|vi|vii|viii|ix)\b(?!\s*" + UNIT_AFTER + ")")
+ORDINAL_GEN = re.compile(r"\b(\d{1,2})(?:st|nd|rd|th)\s+gen(?:eration)?\b")
+GEN_STOP = {"for", "with", "and", "of", "to", "the", "pack", "set", "x", "by", "up", "in", "size"}
+
+
+def _gen_pairs(text: str) -> set[tuple[str, int]]:
+    """("switch", 2) from "Nintendo Switch 2", ("iphone", 16) from "iPhone 16 Pro": a name followed by a generation."""
+    t = re.sub(r"[^a-z0-9+ ]+", " ", (text or "").lower())
+    out = set()
+    for word, num in GEN_PAIR.findall(t):
+        n = ROMAN.get(num) or (int(num) if num.isdigit() else 0)
+        if word not in GEN_STOP and 1 <= n <= 20:
+            out.add((word, n))
+    return out
+
+
+def generation_conflict(item_text: str, cand_text: str) -> str | None:
+    """Why the listing is another generation of the product ("Switch" for "Switch 2"), or None."""
+    want, got = _gen_pairs(item_text), _gen_pairs(cand_text)
+    cand_words = set(re.sub(r"[^a-z0-9+ ]+", " ", (cand_text or "").lower()).split())
+    item_words = set(re.sub(r"[^a-z0-9+ ]+", " ", (item_text or "").lower()).split())
+    ordinals = {int(n) for n in ORDINAL_GEN.findall((cand_text or "").lower())}
+    got_by_word: dict[str, set[int]] = {}
+    for w, n in got:
+        got_by_word.setdefault(w, set()).add(n)
+    for w, n in want:
+        if w not in cand_words:
+            continue  # the listing does not name it the same way; the title match decides
+        nums = got_by_word.get(w, set())
+        if n in nums or n in ordinals:
+            continue
+        return f"{w} {sorted(nums)[0]}" if nums else f"{w} without {n}"
+    want_words = {w for w, _ in want}
+    for w, n in got:  # the item names no generation but the listing does: "Switch" item, "Switch 2" listing
+        if w in item_words and w not in want_words:
+            return f"{w} {n}"
+    return None
+
+
 def exclusions_for(spec: ItemSpec, cand: Candidate) -> list[str]:
     text = cand.title or ""
     cond = (cand.condition or "").lower()
@@ -159,6 +202,9 @@ def exclusions_for(spec: ItemSpec, cand: Candidate) -> list[str]:
             out.append("marketplace seller")
     if spec.exclude_bundles and BUNDLE_RE.search(text) and not BUNDLE_RE.search(spec.name):
         out.append("bundle")
+    gen = generation_conflict(" ".join(x for x in (spec.name, spec.model) if x), text)
+    if gen:
+        out.append(f"different generation ({gen})")
     if KNOCKOFF_RE.search(text) and not KNOCKOFF_RE.search(spec.name):
         out.append("not the brand's own product (compatible / replacement)")
     if spec.exclude_variants:

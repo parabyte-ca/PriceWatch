@@ -104,6 +104,10 @@ def claude_summary(db: Session, text: str) -> str | None:
 
 def build(db: Session, user: User) -> tuple[str, str]:
     body = render(facts(db, user))
+    if user.role == "admin":
+        from .health import summary_line
+
+        body += "\n" + summary_line(db)
     note = claude_summary(db, body)
     return "PriceWatch weekly report", (f"{note}\n\n{body}" if note else body)
 

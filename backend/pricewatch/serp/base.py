@@ -1,3 +1,4 @@
+import re
 from typing import Protocol
 
 import httpx
@@ -17,6 +18,18 @@ class SerpProvider(Protocol):
 
 
 _SECOND_HAND = {"refurbished": "refurbished", "used": "used", "pre-owned": "used", "open box": "open box"}
+
+
+LOCAL_RE = re.compile(r"(in stock (nearby|at|in store)|pick ?up|in store|nearby|curbside|\d+(\.\d+)? km)", re.I)
+
+
+def local_note(row: dict) -> str | None:
+    """Google's nearby-store note for a result ("In stock nearby", "Pick up today"), when it shows one."""
+    texts = [*(row.get("extensions") or []), row.get("tag"), row.get("delivery"), row.get("store_availability")]
+    for t in texts:
+        if isinstance(t, str) and LOCAL_RE.search(t):
+            return t.strip()[:80]
+    return None
 
 
 def shopping_item_to_candidate(row: dict, provider: str) -> Candidate | None:
@@ -47,5 +60,8 @@ def shopping_item_to_candidate(row: dict, provider: str) -> Candidate | None:
         shipping_cents=shipping,
         provider=provider,
         extra={"product_id": row.get("product_id"), "google_link": row.get("product_link"),
-               "immersive_token": row.get("immersive_product_page_token")},
+               "immersive_token": row.get("immersive_product_page_token"),
+               "local": local_note(row),
+               "old_price_cents": parse_price(row.get("extracted_old_price") if row.get("extracted_old_price")
+                                              is not None else row.get("old_price"))},
     )

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ago, api, localTime, money, toCents, toDollars } from "../api";
 import ClaudeSetup from "../components/ClaudeSetup";
+import HealthCheck from "../components/HealthCheck";
 import { Perks } from "../components/Tools";
 import Updates from "../components/Updates";
 import { useSession } from "../session";
@@ -61,6 +62,7 @@ export default function SystemPage() {
   return (
     <div className="space-y-4">
       {user?.role === "admin" && <Updates />}
+      {user?.role === "admin" && <HealthCheck />}
       {user?.role === "admin" && <ClaudeSetup />}
       <Perks admin={user?.role === "admin"} />
       <div className="card grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">

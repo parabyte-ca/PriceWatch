@@ -357,7 +357,7 @@ def market_offers(item_id: int, db: Session = Depends(get_db), me: User = Depend
                       .order_by(MarketOffer.price_cents)).all()
     return [{"merchant": o.merchant, "title": o.title, "price_cents": o.price_cents, "shipping_cents": o.shipping_cents,
              "url": o.url, "store_link": o.store_link, "provider": o.provider, "confidence": o.confidence,
-             "seen_at": o.seen_at.isoformat() + "Z", "kind": o.kind, "domain": o.domain,
+             "seen_at": o.seen_at.isoformat() + "Z", "kind": o.kind, "domain": o.domain, "local": o.local_note,
              "tracked": tracked.get(normalize_url(o.url)) or by_domain.get(o.domain)} for o in rows]
 
 

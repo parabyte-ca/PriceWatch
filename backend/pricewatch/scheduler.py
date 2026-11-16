@@ -189,6 +189,19 @@ async def flyers() -> None:
         db.close()
 
 
+async def category_deals() -> None:
+    """Google Shopping "on sale" searches for deal categories (daily in sale season, weekly otherwise)."""
+    from .services import deals
+
+    db = session_scope()
+    try:
+        await deals.refresh_categories(db)
+    except Exception:  # noqa: BLE001
+        log.exception("category deals failed")
+    finally:
+        db.close()
+
+
 def start() -> AsyncIOScheduler:
     global _scheduler
     _scheduler = AsyncIOScheduler(timezone="UTC")
@@ -198,6 +211,7 @@ def start() -> AsyncIOScheduler:
     _scheduler.add_job(nightly_backup, "interval", minutes=10, id="backup", max_instances=1, coalesce=True)
     _scheduler.add_job(deal_feed, "interval", minutes=15, id="deal_feed", max_instances=1, coalesce=True)
     _scheduler.add_job(flyers, "interval", hours=1, id="flyers", max_instances=1, coalesce=True)
+    _scheduler.add_job(category_deals, "interval", hours=1, id="category_deals", max_instances=1, coalesce=True)
     _scheduler.add_job(rediscover, "interval", hours=2, id="rediscover", max_instances=1, coalesce=True)
     _scheduler.add_job(order_emails, "interval", minutes=10, id="order_emails", max_instances=1, coalesce=True)
     _scheduler.add_job(pre_event_backup, "interval", minutes=15, id="pre_event_backup", max_instances=1, coalesce=True)

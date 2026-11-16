@@ -36,6 +36,7 @@ interface SettingsData {
   llm_match_enabled: boolean;
   web_search_enabled: boolean;
   auto_confirm_strong: boolean;
+  shopping_location: string;
   llm_available?: boolean;
   digest_enabled: boolean;
   digest_time: string;
@@ -248,6 +249,12 @@ export default function SettingsPage() {
             <input className="input" type="number" min={0} value={s.serp_monthly_limit}
               onChange={(e) => set("serp_monthly_limit", Number(e.target.value))} />
           </div>
+        </div>
+        <div>
+          <label className="label">Your city, for in-store stock (optional)</label>
+          <input className="input" placeholder="Ottawa, Ontario, Canada" value={s.shopping_location || ""}
+            onChange={(e) => set("shopping_location", e.target.value)} />
+          <p className="mt-1 text-xs text-slate-500">Search results then show Google's "in stock nearby" and "pick up today" notes for stores near you.</p>
         </div>
         <Toggle k="discover_on_add" label="Refresh prices across stores automatically (about daily, within the search limit)" />
         <Toggle k="deal_feed_enabled" label="Watch the RedFlagDeals Hot Deals feed (every 15 minutes)" />

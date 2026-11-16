@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-1.0.2-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 
 ## Overview
 Type a product, paste a store link or scan a barcode, and PriceWatch CA shows every Canadian
@@ -14,6 +14,10 @@ not the retailer's "was" price, decides whether a sale is real.
 - Watch tracks every recognised Canadian store at once (Best Buy, Walmart, Costco, Canadian Tire, Staples, Amazon.ca and about 35 more) and records each search price as history, so lows, alerts and the buy advice cover all stores. A suggested alert price (about 10% under today's best) is filled in
 - Prices refresh about daily per item, hot and near-target items first, twice a day during sale events, paced so the monthly search limit lasts the month
 - Sources: Google Shopping through SerpApi (one search plus the product's store list), Claude web search when needed, and each store's own page when it allows visits. Stores that block automated visits get their prices from searches; Verify asks Claude to read the store page right now
+- Deals by category on Home (TVs, kitchen accessories, 3D printers, anything): RedFlagDeals threads sorted in by Claude, plus daily Google Shopping "on sale" searches during sale events; biggest drops on your items and matching forum threads
+- Claude sorts out bundles, accessories, refurbished units and marketplace sellers so the comparison shows the product itself; "Not this" and "Only this" fix anything in one tap
+- Photo search (Claude reads the product from a photo), in-store stock near your city, optional eBay Canada listings, and alerts with Open store and one-tap Bought
+- Health check on the System page: failing stores, stale prices, search and Claude budgets, forum feed, backups
 - Optional Claude check on uncertain matches (can reject a lookalike so it is not compared)
 - Ask PriceWatch: plain-language questions about your lists and prices, answered by Claude from your own data (key saved in Household admin)
 - Family link: share a gift list read-only, no account needed; price-match card to show at the till; edit or move any item
@@ -140,6 +144,7 @@ notification URLs are also editable on the Settings page.
 | `PRICEWATCH_PUBLIC_URL` | empty | Address your phone uses; enables ntfy action buttons. Use the https:// address for app notifications |
 | `PRICEWATCH_IMAP_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_FOLDER` | empty / `993` / empty / empty / `INBOX` | Mailbox for forwarded order emails (also turn import on in Settings) |
 | `PRICEWATCH_ALLOW_PRIVATE_URLS` | `false` | Allow fetching home-network addresses (testing only) |
+| `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` | empty | eBay Canada listings through the Browse API (free developer keys) |
 | `ANTHROPIC_API_KEY` | empty | Fallback Claude key (better: save it in Household admin, stored encrypted) |
 | `PRICEWATCH_LLM_MATCH_MODEL` | `claude-haiku-5-5` | Model for that check |
 | `PRICEWATCH_NOTIFY_URLS` | empty | Extra Apprise URLs, comma separated |

@@ -109,3 +109,35 @@ def test_accessory_with_model_number_not_matched():
     spec = ItemSpec(name="Sony WH-1000XM6 Wireless Headphones", brand="Sony")
     assert not match(spec, c("Hard Case for Sony WH-1000XM6 Headphones")).accepted
     assert not match(spec, c("Replacement ear pads compatible with Sony WH-1000XM6")).accepted
+
+
+def test_generation_numbers_are_different_products():
+    from pricewatch.services.matching import Candidate, ItemSpec, generation_conflict, match
+
+    spec = ItemSpec(name="Nintendo Switch 2 Console", brand="Nintendo")
+    old = match(spec, Candidate(title="Nintendo Switch OLED Model Console - White", url="https://www.walmart.ca/x"), 85)
+    assert not old.accepted and any("generation" in e for e in old.exclusions)
+    assert match(spec, Candidate(title="Nintendo Switch™ 2 Console", url="https://www.bestbuy.ca/x"), 85).accepted
+    assert generation_conflict("Nintendo Switch OLED", "Nintendo Switch 2 Console") == "switch 2"
+    assert generation_conflict("iPhone 16 Pro", "Apple iPhone 15 Pro") == "iphone 15"
+    assert generation_conflict("AirPods Pro 2", "Apple AirPods Pro (2nd generation)") is None
+    assert generation_conflict("Samsung 65 inch TV", 'Samsung 65" QLED TV') is None
+    assert generation_conflict("Instant Pot Duo 6 Qt", "Instant Pot Duo 6 Quart Pressure Cooker") is None
+
+
+def test_rediscovery_hides_stores_that_are_another_generation(client, db_session):
+    from pricewatch.models import SourceLink
+    from pricewatch.services import discovery
+    from pricewatch.services.retailers import get_or_create_retailer
+
+    item = client.post("/api/items", json={"name": "Nintendo switch 2 console"}).json()
+    r = get_or_create_retailer(db_session, "https://www.walmart.ca/x")
+    db_session.add(SourceLink(item_id=item["id"], retailer_id=r.id, url="https://www.walmart.ca/x", status="confirmed",
+                              title="Nintendo Switch OLED Model Console", discovered_via="serpapi",
+                              last_price_cents=34995))
+    db_session.commit()
+    from pricewatch.models import Item
+
+    assert discovery.drop_wrong_generation(db_session, db_session.get(Item, item["id"])) == 1
+    src = client.get(f"/api/items/{item['id']}").json()["sources"][0]
+    assert src["status"] == "rejected" and "generation" in src["last_error"]

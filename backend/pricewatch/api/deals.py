@@ -1,0 +1,91 @@
+"""Deals on Home: today's drops on your items, matching forum threads, and deals in categories you follow."""
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from ..auth import current_user
+from ..db import get_db
+from ..models import CategoryDeal, DealCategory, User
+from ..services import deals
+
+router = APIRouter(prefix="/api", tags=["deals"])
+
+
+@router.get("/deals/home")
+def home_deals(db: Session = Depends(get_db), me: User = Depends(current_user)):
+    return {"drops": deals.todays_drops(db, me), "threads": deals.matched_threads(db, me),
+            "categories": deals.category_deals(db, me), "presets": deals.PRESETS}
+
+
+class CategoryIn(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    min_discount_pct: int = Field(default=20, ge=0, le=90)
+    max_price_cents: int | None = Field(default=None, ge=0)
+
+
+@router.post("/deal-categories", status_code=201)
+async def add_category(body: CategoryIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    name = " ".join(body.name.split())
+    if db.scalar(select(DealCategory.id).where(DealCategory.user_id == me.id, DealCategory.name == name)):
+        raise HTTPException(409, "You already follow that category")
+    cat = DealCategory(user_id=me.id, name=name, min_discount_pct=body.min_discount_pct,
+                       max_price_cents=body.max_price_cents)
+    db.add(cat)
+    db.commit()
+    # fill it straight away from forum threads already seen in the last few days
+    from datetime import timedelta
+
+    from ..models import DealFeedEntry
+    from ..timeutil import utcnow
+
+    recent = db.scalars(select(DealFeedEntry).where(DealFeedEntry.created_at >= utcnow() - timedelta(days=4))
+                        .order_by(DealFeedEntry.created_at.desc()).limit(150)).all()
+    seen, rows = set(), []
+    for e in recent:
+        if e.url and e.url not in seen:
+            seen.add(e.url)
+            rows.append({"title": e.title, "link": e.url})
+    if rows:
+        found = await deals.sort_into_categories([cat], [r["title"] for r in rows])
+        from .. import models as m
+        from ..services.dealfeed import split_title
+
+        for r, ids in zip(rows, found, strict=True):
+            if cat.id in ids:
+                tag, _t, price = split_title(r["title"])
+                db.add(m.CategoryDeal(category_id=cat.id, title=r["title"][:500], url=r["link"][:1000], store=tag,
+                                      price_cents=price, source="rfd"))
+        db.commit()
+    return {"id": cat.id, "name": cat.name}
+
+
+@router.patch("/deal-categories/{cat_id}")
+def edit_category(cat_id: int, body: CategoryIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    cat = db.get(DealCategory, cat_id)
+    if cat is None or cat.user_id != me.id:
+        raise HTTPException(404, "Category not found")
+    cat.name, cat.min_discount_pct, cat.max_price_cents = " ".join(body.name.split()), body.min_discount_pct, \
+        body.max_price_cents
+    db.commit()
+    return {"id": cat.id}
+
+
+@router.delete("/deal-categories/{cat_id}", status_code=204)
+def delete_category(cat_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    cat = db.get(DealCategory, cat_id)
+    if cat is None or cat.user_id != me.id:
+        raise HTTPException(404, "Category not found")
+    db.delete(cat)
+    db.commit()
+
+
+@router.post("/category-deals/{deal_id}/dismiss", status_code=204)
+def dismiss_deal(deal_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    d = db.get(CategoryDeal, deal_id)
+    cat = db.get(DealCategory, d.category_id) if d else None
+    if d is None or cat is None or cat.user_id != me.id:
+        raise HTTPException(404, "Deal not found")
+    d.dismissed = True
+    db.commit()

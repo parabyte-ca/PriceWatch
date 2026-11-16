@@ -171,3 +171,26 @@ async def test_verify_reads_a_search_only_store_now(client, with_key, db_session
     assert client.post(f"/api/sources/{src['id']}/check").json()["outcome"] == "ok"  # Verify pressed
     obs = db_session.query(Observation).filter_by(source_link_id=src["id"]).one()
     assert (obs.method, obs.price_cents) == ("claude", 429999)
+
+
+def test_photo_search_identifies_the_product(client, with_key, monkeypatch):
+    import anthropic
+
+    from pricewatch.api.find import Identified
+
+    class API:
+        @property
+        def messages(self):
+            return self
+
+        async def parse(self, **kw):
+            assert kw["messages"][0]["content"][0]["type"] == "image"
+            return NS(parsed_output=Identified(found=True, name="Switch 2", brand="Nintendo", model=None,
+                                               barcode="0045496 884338"), usage=_usage(0))
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kw: API())
+    r = client.post("/api/find/photo", json={"image_b64": "A" * 200}).json()
+    assert r["found"] and r["q"] == "Nintendo Switch 2" and r["barcode"] == "0045496884338"

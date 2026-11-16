@@ -285,6 +285,8 @@ export default function ItemDetail() {
                         flash(r.outcome === "ok" ? "Price verified" : `Could not verify: ${r.outcome.replace("_", " ")}`);
                       })}>Verify</button>
                     )}
+                    <button className="btn-ghost px-2 py-0.5 text-xs" title="Watch only this store for this item"
+                      onClick={() => confirm("Watch only this store and hide the others?") && run(() => api(`/api/sources/${src.id}/only`, { method: "POST" }), "Watching only this store")}>Only this</button>
                     <button className="btn-ghost px-2 py-0.5 text-xs text-red-600" onClick={() => confirm("Remove this source and its history?") &&
                       run(() => api(`/api/sources/${src.id}`, { method: "DELETE" }), "Source removed")}>Remove</button>
                   </div>
@@ -308,6 +310,8 @@ export default function ItemDetail() {
                       Verify
                     </button>
                   )}
+                  <button className="btn-ghost ml-1 px-2 py-1 text-xs" title="Watch only this store for this item"
+                    onClick={() => confirm("Watch only this store and hide the others?") && run(() => api(`/api/sources/${src.id}/only`, { method: "POST" }), "Watching only this store")}>Only this</button>
                   <button className="btn-ghost ml-1 px-2 py-1 text-xs text-red-600"
                     onClick={() => confirm("Remove this source and its history?") &&
                       run(() => api(`/api/sources/${src.id}`, { method: "DELETE" }), "Source removed")}>

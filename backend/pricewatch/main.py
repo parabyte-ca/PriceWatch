@@ -16,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import __version__, scheduler
 from .api import accounts as accounts_api
 from .api import ask as ask_api
+from .api import deals as deals_api
 from .api import emailimports as email_api
 from .api import extra as extra_api
 from .api import find as find_api
@@ -96,6 +97,7 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(items_api.router)
     app.include_router(find_api.router)
+    app.include_router(deals_api.router)
     app.include_router(system_api.router)
     app.include_router(extra_api.router)
     app.include_router(accounts_api.router)
