@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.0] - 2026-11-16
+### Added
+- Prices from stores that block PriceWatch: when Best Buy, Walmart, Canadian Tire or another store answers PriceWatch's own check with a bot check (HTTP 403) or shows no price, Claude reads the current price instead, using Anthropic's web fetch and web search limited to that one store's site. PriceWatch itself still never tries to get past a bot check. Claude must report a price it actually saw for the exact product (never a guess), and links to other sites are ignored
+- The Add page shows the price straight away for those stores, with a note that Claude read it; the item page marks such prices "price read by Claude"
+- Stores paused after repeated blocks still get prices through Claude, without PriceWatch knocking again
+- Household admin, Claude card: "Read prices with Claude when a store blocks PriceWatch" switch, a monthly spending cap (default US$15, 0 for none) and this month's estimated spend, price checks and searches. Price checks use Claude Haiku at low effort, at most twice a day per link; a Preview's answer is reused by the first check after saving. Store searches (finding the same product elsewhere) count toward the same cap
+
 ## [0.14.0] - 2026-11-16
 ### Added
 - PriceWatch finds the same product at other stores by itself: right after an item is added (by link, name or barcode) and again about weekly. With a Claude key and no SerpApi/Bright Data key, it uses Claude's web search limited to the Canadian stores PriceWatch knows; results go through the usual matcher and polite checker, and the monthly search cap applies. Same model number or barcode: tracked at once and checked right away; close matches wait for you to confirm. The item page shows the search while it runs

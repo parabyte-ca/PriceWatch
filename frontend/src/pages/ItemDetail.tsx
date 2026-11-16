@@ -261,6 +261,7 @@ export default function ItemDetail() {
                     {[src.channel !== "online" ? src.channel : null,
                       src.last_seller_type?.startsWith("marketplace") ? src.last_seller_type.replace("marketplace:", "sold by ") : null,
                       src.last_condition && src.last_condition !== "new" ? src.last_condition.replace("_", " ") : null,
+                      src.last_method === "claude" ? "price read by Claude" : null,
                       src.fetch_mode && src.fetch_mode !== "auto" ? `via ${src.fetch_mode}` : null].filter(Boolean).join(" · ")}
                   </div>
                   {src.last_error && <div className="break-words text-xs text-red-600">{src.last_error}</div>}

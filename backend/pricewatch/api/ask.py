@@ -58,6 +58,8 @@ class ClaudeIn(BaseModel):
     model: str
     effort: str = "medium"
     api_key: str | None = Field(default=None, max_length=300)
+    price_fallback: bool = True
+    monthly_cap_usd: float = Field(default=claude.DEFAULT_CAP_USD, ge=0, le=1000)
 
 
 @router.get("/admin/claude")
@@ -72,7 +74,8 @@ def claude_save(body: ClaudeIn, db: Session = Depends(get_db), _: User = Depends
     key = (body.api_key or "").strip() or None
     if key and not key.startswith("sk-ant-"):
         raise HTTPException(422, "That does not look like an Anthropic API key (sk-ant-...)")
-    claude.save(db, body.enabled, body.model, body.effort, key)
+    claude.save(db, body.enabled, body.model, body.effort, key, price_fallback=body.price_fallback,
+                monthly_cap_usd=body.monthly_cap_usd)
     return claude.status(db)
 
 
