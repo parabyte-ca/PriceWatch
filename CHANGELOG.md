@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.14.0] - 2026-11-16
+### Added
+- PriceWatch finds the same product at other stores by itself: right after an item is added (by link, name or barcode) and again about weekly. With a Claude key and no SerpApi/Bright Data key, it uses Claude's web search limited to the Canadian stores PriceWatch knows; results go through the usual matcher and polite checker, and the monthly search cap applies. Same model number or barcode: tracked at once and checked right away; close matches wait for you to confirm. The item page shows the search while it runs
+- Ask PriceWatch: ask about your lists, prices, purchases and savings in plain language (same design as Ask NetWatch). Claude reads through PriceWatch's own API as you and cannot change anything; 40 questions an hour
+- Household admin, Claude card: save the Anthropic key (stored encrypted with `data/.secret_key`, never shown again), pick the model and effort, test, forget. Every Claude feature uses it; `ANTHROPIC_API_KEY` in .env still works
+- In-app updates like NetWatch and MediaMate: live steps (requested, agent started, backup, download and verify, restart, health check, done) read from the update log, a timer, a time estimate from past updates, a striped progress bar, the latest log line, a success or failure finish (with "rolled back automatically" when that happened), a slim bar across the top of every page for admins with the percentage in the tab title, and update history. The page keeps going while PriceWatch restarts. `update.sh` logs in UTC with a line per step; the host agent keeps `history.jsonl` (last 50)
+- Prices embedded as page data (Next.js `__NEXT_DATA__`, the shape Walmart Canada uses) are read when a page has no standard product markup
+
+### Fixed
+- The Add page says when a store answered with a "Robot or human?" check instead of reporting "ok" with no price (PriceWatch never tries to get past those)
+
 ## [0.13.0] - 2026-11-16
 ### Security
 - PriceWatch no longer fetches addresses on your own network. Store links, previews, list imports, the page test, the browser (every navigation and every request a page makes) and redirects must be public http(s) addresses: private, loopback, link-local and carrier-grade ranges, `localhost`, `.local`/`.lan`/single-label names, and names that resolve to them are refused. Before, anyone signed in could make the server read the router or TrueNAS pages. `PRICEWATCH_ALLOW_PRIVATE_URLS=true` turns this off (the smoke test's fixture server uses it)

@@ -12,7 +12,7 @@ from .. import scheduler
 from ..auth import current_user
 from ..config import get_settings
 from ..db import get_db
-from ..fetch.http import domain_of
+from ..fetch.http import domain_of, looks_like_challenge
 from ..models import Item, Observation, SourceLink, User
 from ..schemas import (
     DiscoverIn,
@@ -26,7 +26,7 @@ from ..schemas import (
     SourceUpdate,
     UrlIn,
 )
-from ..serp import available_providers
+from ..serp import available_providers, get_provider
 from ..services import alerts, settings_store
 from ..services import users as users_svc
 from ..services.checker import (
@@ -121,6 +121,9 @@ def create_item(body: ItemCreate, db: Session = Depends(get_db),
     item = Item(**data, added_by=me.id)
     db.add(item)
     db.commit()
+    from ..services.discovery import start_background
+
+    start_background(item.id)  # look for it at other stores while the person carries on
     item = _load_item(db, item.id)
     return item_out(db, item, summarize_items(db, [item], me.id)[item.id], with_sources=True, me=me)
 
@@ -174,14 +177,18 @@ async def preview(body: UrlIn, db: Session = Depends(get_db),
     result, parsed, method = await fetch_and_parse(url, retailer, retailer.fetch_mode, use_cache=True)
     from ..adapters.base import ParsedProduct, clean_name
 
+    outcome, error = result.outcome, result.error
+    if outcome == "ok" and not (parsed and parsed.has_price) and looks_like_challenge(result.html):
+        # the store answered with a "Robot or human?" style check; PriceWatch never tries to get past those
+        outcome, error = "blocked", "The store showed a bot check instead of the product page"
     parsed = parsed or ParsedProduct()
     parsed.name = clean_name(parsed.name, url, retailer.name)
     return {
         "url": url,
         "domain": domain_of(url),
         "retailer": retailer.name,
-        "outcome": result.outcome,
-        "error": result.error,
+        "outcome": outcome,
+        "error": error,
         "method": method,
         "product": parsed.to_dict() if parsed else None,
     }
@@ -242,6 +249,9 @@ async def create_from_url(body: FromUrlIn, db: Session = Depends(get_db),
     item = await create_item_from_url(db, str(body.url), name=body.name, target=body.target_price_cents,
                                       hot=body.hot, priority=body.priority, user=me,
                                       list_id=_target_list(db, me, body.list_id))
+    from ..services.discovery import start_background
+
+    start_background(item.id)  # the same product at other stores
     item = _load_item(db, item.id)
     return item_out(db, item, summarize_items(db, [item], me.id)[item.id], with_sources=True, me=me)
 
@@ -316,6 +326,15 @@ async def barcode(code: str, db: Session = Depends(get_db), me: User = Depends(c
         return await barcode_lookup(db, code)
     except DiscoveryError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
+@router.get("/items/{item_id}/discover")
+def discover_status(item_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    from ..services.discovery import searching
+
+    _load_item(db, item_id, me)
+    p = get_provider(None)
+    return {"searching": searching(item_id), "provider": p.name if p else None}
 
 
 @router.post("/items/{item_id}/discover")

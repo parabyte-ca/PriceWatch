@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, DiscoveryResult, Item, money } from "../api";
 
 const pct = (n: number | null) => (n == null ? "" : `${Math.round(n * 100)}%`);
@@ -8,6 +8,23 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
   const [result, setResult] = useState<DiscoveryResult | null>(null);
   const [error, setError] = useState("");
   const [showRejected, setShowRejected] = useState(false);
+  const [status, setStatusInfo] = useState<{ searching: boolean; provider: string | null } | null>(null);
+  // a search starts by itself when an item is added; show it and refresh when it finishes
+  useEffect(() => {
+    let stop = false;
+    let was = false;
+    const poll = () => api<{ searching: boolean; provider: string | null }>(`/api/items/${item.id}/discover`).then((st) => {
+      if (stop) return;
+      setStatusInfo(st);
+      if (was && !st.searching) onChange();
+      was = st.searching;
+      if (st.searching) setTimeout(poll, 4000);
+    }).catch(() => {});
+    poll();
+    return () => { stop = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
+  const via = status?.provider === "claude" ? "Claude web search" : status?.provider ? "Google Shopping" : null;
   const suggested = (item.sources || []).filter((s) => s.status === "suggested");
   const rejected = (item.sources || []).filter((s) => s.status === "rejected");
 
@@ -38,10 +55,12 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
   return (
     <div className="card space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <h2 className="font-semibold">Find this item at other retailers</h2>
-        <button className="btn-ghost ml-auto" onClick={() => find(false)} disabled={busy}>
-          {busy ? "Searching..." : "Search Google Shopping"}
-        </button>
+        <h2 className="font-semibold">Other stores</h2>
+        {via && (
+          <button className="btn-ghost ml-auto" onClick={() => find(false)} disabled={busy || status?.searching}>
+            {busy || status?.searching ? "Searching..." : "Search other stores"}
+          </button>
+        )}
         {result?.cached && (
           <button className="btn-ghost" onClick={() => find(true)} disabled={busy} title="Uses one paid search">
             Search again
@@ -49,6 +68,8 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
         )}
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {status?.searching && <p className="text-sm text-slate-500">Looking for this at other Canadian stores ({via})… Matches with the same model number or barcode start being tracked automatically.</p>}
+      {!via && <p className="text-sm text-slate-500">To find this at other stores automatically, the household admin adds a Claude key (Household admin) or a SerpApi key.</p>}
 
       {suggested.length > 0 && (
         <div>

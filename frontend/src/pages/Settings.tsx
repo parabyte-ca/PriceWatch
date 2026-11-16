@@ -35,6 +35,8 @@ interface SettingsData {
   boxingweek_start: string;
   boxingweek_end: string;
   llm_match_enabled: boolean;
+  web_search_enabled: boolean;
+  auto_confirm_strong: boolean;
   llm_available?: boolean;
   digest_enabled: boolean;
   digest_time: string;
@@ -273,6 +275,8 @@ export default function SettingsPage() {
             onChange={(e) => set("min_claim_cents", Math.round(Number(e.target.value) * 100))} />
         </div>
         <Toggle k="auto_confirm_gtin" label="Auto-confirm listings whose GTIN/UPC matches exactly" />
+        <Toggle k="web_search_enabled" label="Find items at other stores with Claude web search (uses the Claude key)" />
+        <Toggle k="auto_confirm_strong" label="Track same-model and same-barcode matches automatically" />
         <Toggle k="llm_match_enabled" label="Ask Claude Haiku about uncertain matches (scores 80 to 94)" />
         {s.llm_match_enabled && !s.llm_available && (
           <p className="text-xs text-amber-700">Set ANTHROPIC_API_KEY in .env to use this.</p>

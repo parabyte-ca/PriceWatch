@@ -131,7 +131,10 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
             row["status"] = "excluded" if result.exclusions else "low match"
         else:
             retailer = get_or_create_retailer(db, url)
-            auto = cfg["auto_confirm_gtin"] and result.method == "gtin"
+            # a matching barcode or model number (same brand, not an accessory) is near certain: track it at once
+            auto = (cfg["auto_confirm_gtin"] and result.method == "gtin") or (
+                cfg.get("auto_confirm_strong", True) and result.method in ("gtin", "mpn", "model")
+                and result.confidence >= 0.9)
             src = SourceLink(
                 item_id=item.id, retailer_id=retailer.id, url=url, title=cand.title[:500],
                 status="confirmed" if auto else "suggested", match_confidence=result.confidence,
@@ -140,6 +143,8 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
                                "serp_price_cents": cand.price_cents, "merchant": cand.merchant,
                                "query": query, "ai": ai},
             )
+            if auto:
+                src.next_check_at = utcnow()  # first real price soon
             db.add(src)
             db.flush()
             existing[url] = src
@@ -178,3 +183,67 @@ async def barcode_lookup(db: Session, code: str) -> dict:
                       "merchant": c.merchant, "price_cents": c.price_cents})
     names.sort(key=lambda n: not n["exact"])
     return {"gtin": digits, "provider": provider.name, "cached": cached, "names": names[:6]}
+
+
+_running: set[int] = set()
+
+
+def searching(item_id: int) -> bool:
+    return item_id in _running
+
+
+async def discover_in_background(item_id: int) -> None:
+    """Look for the item at other stores without making the person wait (after adding an item)."""
+    from ..db import session_scope
+
+    if item_id in _running or get_provider(None) is None:
+        return
+    _running.add(item_id)
+    db = session_scope()
+    try:
+        item = db.get(Item, item_id)
+        if item is not None and settings_store.get(db, "discover_on_add"):
+            await discover(db, item)
+    except DiscoveryError as exc:
+        log.info("background discovery skipped", extra={"item_id": item_id, "reason": str(exc)})
+    except Exception:  # noqa: BLE001 - never let a background search break anything
+        log.exception("background discovery failed", extra={"item_id": item_id})
+    finally:
+        _running.discard(item_id)
+        db.close()
+
+
+def start_background(item_id: int) -> None:
+    """Schedule discover_in_background from async code or from a worker thread (sync endpoints)."""
+    import asyncio
+
+    from ..config import get_settings
+    from . import runtime
+
+    if not get_settings().scheduler_enabled:
+        return  # background work follows the scheduler switch (off in tests)
+    try:
+        asyncio.get_running_loop().create_task(discover_in_background(item_id))
+    except RuntimeError:
+        if runtime.main_loop is not None and runtime.main_loop.is_running():
+            asyncio.run_coroutine_threadsafe(discover_in_background(item_id), runtime.main_loop)
+
+
+async def refresh_stale(db: Session, per_run: int = 5, days: int = 7) -> int:
+    """Weekly re-search for active items, a few per run, so new stores and new listings are found."""
+    if get_provider(None) is None or not settings_store.get(db, "discover_on_add"):
+        return 0
+    since = utcnow() - timedelta(days=days)
+    recent = set(db.scalars(select(SerpSearch.item_id).where(SerpSearch.created_at >= since,
+                                                             SerpSearch.item_id.is_not(None))).all())
+    items = [i for i in db.scalars(select(Item).where(Item.active.is_(True)).order_by(Item.priority, Item.id)).all()
+             if i.id not in recent][:per_run]
+    done = 0
+    for item in items:
+        try:
+            await discover(db, item)
+            done += 1
+        except DiscoveryError as exc:
+            log.info("weekly discovery stopped", extra={"reason": str(exc)})
+            break
+    return done

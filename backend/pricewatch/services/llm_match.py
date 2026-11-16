@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import LlmMatchCache
-from . import settings_store
+from . import claude, settings_store
 from .matching import Candidate, ItemSpec
 
 log = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ class Verdict(BaseModel):
 
 
 def enabled(db: Session) -> bool:
-    return bool(get_settings().anthropic_api_key) and bool(settings_store.get(db, "llm_match_enabled"))
+    return bool(claude.api_key()) and bool(settings_store.get(db, "llm_match_enabled"))
 
 
 def similarity(confidence: float) -> float:
@@ -63,7 +63,7 @@ def _key(model: str, item: str, listing: str) -> str:
 def _ask(model: str, item: str, listing: str) -> Verdict | None:
     import anthropic
 
-    client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key, timeout=30.0, max_retries=2)
+    client = anthropic.Anthropic(api_key=claude.api_key(), timeout=30.0, max_retries=2)
     try:
         response = client.messages.parse(
             model=model,

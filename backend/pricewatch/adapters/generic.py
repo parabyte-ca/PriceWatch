@@ -185,6 +185,68 @@ def _meta(soup: BeautifulSoup, *names: str) -> str | None:
     return None
 
 
+def _iter_dicts(node, depth=0):
+    if depth > 40:
+        return
+    if isinstance(node, dict):
+        yield node
+        for v in node.values():
+            yield from _iter_dicts(v, depth + 1)
+    elif isinstance(node, list):
+        for v in node[:500]:
+            yield from _iter_dicts(v, depth + 1)
+
+
+def _num_price(obj) -> int | None:
+    if isinstance(obj, dict):
+        for k in ("price", "amount", "value"):
+            if isinstance(obj.get(k), int | float) and not isinstance(obj.get(k), bool):
+                return parse_price(obj[k])
+        if isinstance(obj.get("priceString"), str):
+            return parse_price(obj["priceString"])
+    return None
+
+
+def parse_embedded_json(soup) -> ParsedProduct | None:
+    """Product data that script-built pages embed as JSON (Next.js ``__NEXT_DATA__`` and similar).
+
+    Looks for a product object with ``priceInfo.currentPrice`` (the shape Walmart Canada uses). Conservative: a
+    price in another currency is ignored, and only the first product with a price counts.
+    """
+    scripts = soup.find_all("script", attrs={"id": "__NEXT_DATA__"}) + \
+        soup.find_all("script", attrs={"type": "application/json"})
+    for tag in scripts[:20]:
+        raw = tag.string or tag.get_text() or ""
+        if "priceInfo" not in raw or len(raw) > 5_000_000:
+            continue
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        for node in _iter_dicts(data):
+            info = node.get("priceInfo")
+            if not isinstance(info, dict):
+                continue
+            current = info.get("currentPrice") or info.get("linePrice")
+            price = _num_price(current)
+            if price is None:
+                continue
+            currency = (current or {}).get("currencyUnit") or (current or {}).get("currency")
+            if currency and str(currency).upper() not in ("CAD", "CA$"):
+                continue
+            was = _num_price(info.get("wasPrice")) or _num_price(info.get("listPrice"))
+            status = str(node.get("availabilityStatus") or "").upper()
+            in_stock = True if status in ("IN_STOCK", "AVAILABLE") else False if status in ("OUT_OF_STOCK",) else None
+            seller_obj = node.get("seller")
+            seller = node.get("sellerName") or (seller_obj.get("name") if isinstance(seller_obj, dict) else None)
+            brand = node.get("brand") if isinstance(node.get("brand"), str) else None
+            return ParsedProduct(name=node.get("name"), brand=brand,
+                                 sku=str(node.get("usItemId") or node.get("id") or "") or None, image=None,
+                                 price_cents=price, was_price_cents=was if was and was > price else None, currency="CAD",
+                                 in_stock=in_stock, seller=seller, source="embedded_json")
+    return None
+
+
 def parse_opengraph(soup: BeautifulSoup) -> ParsedProduct:
     return ParsedProduct(
         name=_meta(soup, "og:title", "twitter:title"),
@@ -232,7 +294,7 @@ def _merge(primary: ParsedProduct, fallback: ParsedProduct | None) -> ParsedProd
 class GenericAdapter:
     name = "generic"
 
-    def parse(self, html: str, url: str, retailer: RetailerConfig | None = None) -> ParsedProduct | None:
+    def parse(self, html: str, url: str, retailer: RetailerConfig | None = None) -> ParsedProduct | None:  # noqa: C901
         soup = BeautifulSoup(html, "lxml")
         retailer = retailer or RetailerConfig()
         candidates: list[ParsedProduct] = []
@@ -240,7 +302,7 @@ class GenericAdapter:
             css = parse_css(soup, retailer.selectors)
             if css.has_price or css.name:
                 candidates.append(css)
-        for fn in (parse_jsonld, parse_microdata):
+        for fn in (parse_jsonld, parse_microdata, parse_embedded_json):
             parsed = fn(soup)
             if parsed:
                 candidates.append(parsed)

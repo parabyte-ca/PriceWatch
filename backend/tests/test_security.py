@@ -128,3 +128,42 @@ def test_family_share_link(client):
         assert client.get("/api/lists").status_code == 401
     finally:
         s.auth_mode = old
+
+
+def test_embedded_next_data_price():
+    """Pages that build the product with script carry it as JSON (shape modelled on Walmart Canada; not live)."""
+    from pricewatch.adapters.generic import GenericAdapter
+
+    from .conftest import fixture_html
+
+    p = GenericAdapter().parse(fixture_html("embedded_next_data.html"), "https://www.walmart.ca/en/ip/x/6000208112047")
+    assert p.price_cents == 14997 and p.was_price_cents == 19997 and p.in_stock is True
+    assert p.name.startswith("T-fal Dual Easy Fry") and p.source == "embedded_json" and p.seller == "Walmart"
+    usd = fixture_html("embedded_next_data.html").replace('"currencyUnit":"CAD"', '"currencyUnit":"USD"')
+    assert GenericAdapter().parse(usd, "https://x.ca/p").price_cents is None
+
+
+def test_preview_names_a_bot_check(client):
+    import httpx
+
+    from pricewatch.db import session_scope
+    from pricewatch.fetch.http import PoliteFetcher
+    from pricewatch.models import Retailer
+    from pricewatch.services import runtime
+
+    def handler(req):
+        if req.url.path == "/robots.txt":
+            return httpx.Response(404)
+        return httpx.Response(200, text="<html><title>Robot or human?</title><div id='px-captcha'></div></html>")
+
+    runtime.set_fetcher(PoliteFetcher("t", min_interval=0, jitter=0, transport=httpx.MockTransport(handler)))
+    db = session_scope()
+    r = db.query(Retailer).filter_by(domain="walmart.ca").one()
+    r.fetch_mode, r.min_interval_seconds = "http", None
+    db.commit()
+    db.close()
+    try:
+        out = client.post("/api/preview", json={"url": "https://www.walmart.ca/en/ip/air-fryer/6000208112047"}).json()
+    finally:
+        runtime.set_fetcher(None)
+    assert out["outcome"] == "blocked" and "bot check" in out["error"]

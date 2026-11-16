@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.13.0-blue)
+![Version](https://img.shields.io/badge/version-0.14.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,8 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- Finds the same product at other Canadian stores automatically (Claude web search or SerpApi), tracks exact matches and lets you confirm close ones
+- Ask PriceWatch: plain-language questions about your lists and prices, answered by Claude from your own data (key saved in Household admin)
 - Family link: share a gift list read-only, no account needed; price-match card to show at the till; edit or move any item
 - Only public store pages are ever fetched: nothing on your home network can be reached through PriceWatch
 - Simple to use: four tabs (Home, Add, Lists, Me), "Buy now" at the top of Home, and three-way presets for how eager to buy and when to be notified; every number is still there under Advanced
@@ -147,7 +149,7 @@ notification URLs are also editable on the Settings page.
 | `KEEPA_API_KEY` | empty | Amazon.ca prices and history via Keepa |
 | `PRICEWATCH_IMAP_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_FOLDER` | empty / `993` / empty / empty / `INBOX` | Mailbox for forwarded order emails (also turn import on in Settings) |
 | `PRICEWATCH_ALLOW_PRIVATE_URLS` | `false` | Allow fetching home-network addresses (testing only) |
-| `ANTHROPIC_API_KEY` | empty | Claude Haiku second opinion on uncertain matches (also on in Settings) |
+| `ANTHROPIC_API_KEY` | empty | Fallback Claude key (better: save it in Household admin, stored encrypted) |
 | `PRICEWATCH_LLM_MATCH_MODEL` | `claude-haiku-5-5` | Model for that check |
 | `CHANGEDETECTION_URL` / `CHANGEDETECTION_API_KEY` | empty | changedetection.io bridge |
 | `PRICEWATCH_BROWSER_ENABLED` | `true` | Use the Playwright sidecar |

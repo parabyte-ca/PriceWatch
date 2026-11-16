@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..models import Alert, Item, Observation, Purchase, User
 from ..timeutil import utcnow
-from . import events, llm_match, settings_store
+from . import claude, events, llm_match, settings_store
 
 log = logging.getLogger(__name__)
 SEND_AT = time(18, 0)
@@ -85,7 +85,7 @@ def claude_summary(db: Session, text: str) -> str | None:
     import anthropic
 
     try:
-        client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key, timeout=30.0, max_retries=2)
+        client = anthropic.Anthropic(api_key=claude.api_key(), timeout=30.0, max_retries=2)
         response = client.messages.create(
             model=get_settings().llm_match_model, max_tokens=2000, output_config={"effort": "low"},
             system=("You write a short weekly note for a household's price tracker. In two or three plain sentences, "
