@@ -64,6 +64,13 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = Field(default=None, validation_alias=AliasChoices("ANTHROPIC_API_KEY"))
     llm_match_model: str = Field(default="claude-haiku-5-5", validation_alias=AliasChoices("PRICEWATCH_LLM_MATCH_MODEL"))
 
+    # optional: mailbox that receives forwarded order confirmations (read-only use; messages are marked read)
+    imap_host: str | None = Field(default=None, validation_alias=AliasChoices("PRICEWATCH_IMAP_HOST"))
+    imap_port: int = Field(default=993, validation_alias=AliasChoices("PRICEWATCH_IMAP_PORT"))
+    imap_user: str | None = Field(default=None, validation_alias=AliasChoices("PRICEWATCH_IMAP_USER"))
+    imap_password: str | None = Field(default=None, validation_alias=AliasChoices("PRICEWATCH_IMAP_PASSWORD"))
+    imap_folder: str = Field(default="INBOX", validation_alias=AliasChoices("PRICEWATCH_IMAP_FOLDER"))
+
     keepa_api_key: str | None = Field(
         default=None, validation_alias=AliasChoices("KEEPA_API_KEY", "PRICEWATCH_KEEPA_API_KEY"))
     changedetection_url: str | None = Field(

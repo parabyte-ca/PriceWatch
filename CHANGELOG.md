@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.0] - 2026-11-16
+### Added
+- Order-email import: forward order confirmations to a mailbox PriceWatch reads every 10 minutes (IMAP, opt-in). It finds the store, order number and date and your tracked items in the email and records each as a purchase with the store's price-protection terms, then alerts you. Lines it cannot match are listed on the Bought page to link by hand. Each person sets the address they forward from. Optionally Claude Haiku reads the email instead (household setting, off by default; the email text goes to Anthropic)
+- Listings that are "compatible with", "replacement for" or "for use with" a product are excluded as not the brand's own product
+
+### Fixed
+- The Claude Haiku second opinion (v0.8.0 onward) never ran outside tests: its 80-to-94 band was compared with the matcher's 0-to-0.9 confidence. It now uses the title similarity behind the score, with a regression test on real matcher output
+
 ## [0.10.1] - 2026-11-16
 ### Fixed
 - Browser checks no longer fail when a store page keeps loading (Sport Chek "Timeout 30000ms exceeded"): PriceWatch waits for the first response, then for a price on the page, and reads what has rendered by the deadline

@@ -175,3 +175,30 @@ async def add_screenshots(db: Session, src: SourceLink) -> int:
             log.warning("proof screenshot failed", extra={"url": src.url})
     db.commit()
     return done
+
+
+def create_purchase(db: Session, *, user_id: int, item: Item, src: SourceLink | None, retailer_name: str,
+                    retailer_domain: str | None, price_cents: int, purchased_on: date, channel: str = "online",
+                    shipping_cents: int | None = None, badged: bool = False, protection_days: int | None = None,
+                    order_ref: str | None = None, notes: str | None = None, stop_tracking: bool = True) -> Purchase:
+    """Record a purchase with protection terms from the store's policy (or the days given). Caller commits."""
+    from . import savings
+
+    member = bool(settings_store.get(db, "my_best_buy_member", user_id))
+    days, until, basis = terms(db, retailer_domain, purchased_on, member, badged)
+    if protection_days is not None:
+        days = protection_days
+        until = purchased_on + timedelta(days=days) if days else None
+        basis = f"{days}-day protection (entered by you)" if days else None
+    ref, ref_basis = savings.reference_price(db, item.id)
+    p = Purchase(reference_cents=ref, reference_basis=ref_basis, item_id=item.id, user_id=user_id,
+                 source_link_id=src.id if src else None, retailer_domain=retailer_domain, retailer_name=retailer_name,
+                 channel=(src.channel or channel) if src else channel, price_cents=price_cents,
+                 shipping_cents=shipping_cents, purchased_on=purchased_on, protection_days=days,
+                 protection_until=until, protection_basis=basis, badged=badged, order_ref=order_ref, notes=notes,
+                 status="watching" if until and until >= events.local_now().date() else "closed")
+    db.add(p)
+    if stop_tracking:
+        item.active = False  # no more deal alerts; sources keep being checked while protection is open
+    db.flush()
+    return p

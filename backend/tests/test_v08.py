@@ -166,7 +166,8 @@ async def test_llm_check_caches(db_session, monkeypatch):
     assert r1["same_product"] is False and r1["cached"] is False and r2["cached"] is True
     assert len(calls) == 1 and calls[0][0] == "claude-haiku-5-5"
     assert "Sony WH-1000XM5" in calls[0][2] and db_session.query(LlmMatchCache).count() == 1
-    assert llm_match.in_band(88) and not llm_match.in_band(95) and not llm_match.in_band(79)
+    assert llm_match.in_band(0.792) and not llm_match.in_band(0.855) and not llm_match.in_band(0.711)
+    assert llm_match.in_band(0.72) and not llm_match.in_band(0.9)
     assert llm_match.enabled(db_session) is False  # no key
 
 
@@ -178,7 +179,7 @@ def test_discovery_uses_llm_to_reject(client, fake, monkeypatch):  # noqa: F811
 
     def fuzzy(spec, cand, threshold):
         r = real(spec, cand, threshold)
-        return MatchResult(88.0, "fuzzy", r.accepted, list(r.reasons), list(r.exclusions)) if r.accepted else r
+        return MatchResult(0.792, "fuzzy", r.accepted, list(r.reasons), list(r.exclusions)) if r.accepted else r
 
     async def check(db, spec, cand, asker=None):
         same = "bestbuy" in cand.url
@@ -196,3 +197,17 @@ def test_discovery_uses_llm_to_reject(client, fake, monkeypatch):  # noqa: F811
     assert staples["status"] == "low match" and any("Claude" in x for x in staples["reasons"])
     assert body["added"] == 1
 
+
+
+def test_llm_band_uses_real_matcher_scale():
+    """Regression: the band was compared against 80 to 94 while the matcher reports 0 to 0.9, so it never fired."""
+    from pricewatch.services import llm_match
+    from pricewatch.services.matching import Candidate, ItemSpec, match
+
+    spec = ItemSpec(name="LEGO Titanic Building Set", brand="LEGO")
+    near = match(spec, Candidate(title="LEGO Titanic 10294 Building Kit", url="https://x"), 85)
+    assert near.accepted and near.method == "fuzzy" and llm_match.in_band(near.confidence)
+    exact = match(spec, Candidate(title="LEGO Titanic Building Set", url="https://x"), 85)
+    assert not llm_match.in_band(exact.confidence)
+    knock = match(spec, Candidate(title="Titanic Building Set Ship Model LEGO Compatible", url="https://x"), 85)
+    assert not knock.accepted

@@ -64,6 +64,8 @@ def normalize_url(url: str) -> str:
 REFURB_RE = re.compile(r"\b(refurb(ished)?|renewed|reconditioned|remanufactured|recertified|seller refurbished)\b", re.I)
 OPEN_BOX_RE = re.compile(r"\bopen[\s-]?box\b", re.I)
 USED_RE = re.compile(r"\b(used|pre[\s-]?owned|second[\s-]?hand|like new)\b", re.I)
+KNOCKOFF_RE = re.compile(r"\b(compatible (with|for)|\w+[- ]compatible|replacement for|for use with|"
+                         r"knock-?off|dupe|alternative to)\b", re.I)
 BUNDLE_RE = re.compile(
     r"\b(bundle|combo|kit with|with (?:case|charger|mount|stand|bag|controller|game)|\+\s*\w+|"
     r"2[\s-]?pack|3[\s-]?pack|4[\s-]?pack|set of \d|pack of \d)\b",
@@ -157,6 +159,8 @@ def exclusions_for(spec: ItemSpec, cand: Candidate) -> list[str]:
             out.append("marketplace seller")
     if spec.exclude_bundles and BUNDLE_RE.search(text) and not BUNDLE_RE.search(spec.name):
         out.append("bundle")
+    if KNOCKOFF_RE.search(text) and not KNOCKOFF_RE.search(spec.name):
+        out.append("not the brand's own product (compatible / replacement)")
     if spec.exclude_variants:
         for label, fn in (("storage", _storage), ("colour", _colours), ("size", _screens)):
             want, got = fn(spec.name), fn(text)

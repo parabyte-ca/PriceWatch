@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import OrderEmails from "../components/OrderEmails";
 import { PurchaseCard, PurchaseInfo } from "../components/Purchase";
 
 export default function Purchases() {
@@ -19,6 +20,7 @@ export default function Purchases() {
       {open.map((p) => <PurchaseCard key={p.id} p={p} onChange={load} />)}
       {rest.length > 0 && <h2 className="pt-2 text-sm font-semibold text-slate-500">Closed</h2>}
       {rest.map((p) => <PurchaseCard key={p.id} p={p} onChange={load} />)}
+      <OrderEmails onChange={load} />
     </div>
   );
 }

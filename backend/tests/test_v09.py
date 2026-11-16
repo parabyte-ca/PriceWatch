@@ -71,7 +71,7 @@ async def test_deal_feed_llm_veto(client, pages, sent, monkeypatch):
 
     def fuzzy(spec, cand, threshold):
         r = real(spec, cand, threshold)
-        return MatchResult(88.0, "fuzzy", True, r.reasons, r.exclusions) if r.accepted else r
+        return MatchResult(0.792, "fuzzy", True, r.reasons, r.exclusions) if r.accepted else r
 
     asked = []
 
@@ -113,7 +113,7 @@ async def test_flyer_llm_veto(client, pages, sent, monkeypatch):
 
     def fuzzy(spec, cand, threshold):
         r = real(spec, cand, threshold)
-        return MatchResult(90.0, "fuzzy", True, r.reasons, r.exclusions) if r.accepted else r
+        return MatchResult(0.81, "fuzzy", True, r.reasons, r.exclusions) if r.accepted else r
 
     async def check(db, spec, cand, asker=None):
         db.add(llm_match.LlmMatchCache(key=llm_match._key("claude-haiku-5-5", *llm_match._describe(spec, cand)),
