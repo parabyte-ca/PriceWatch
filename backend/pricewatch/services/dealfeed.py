@@ -164,6 +164,7 @@ async def poll(db: Session) -> dict:
         log.info("deal feed fetch failed", extra={"outcome": result.outcome, "error": result.error})
         return {"outcome": result.outcome, "error": result.error}
     entries = parse_feed(result.html)
+    fresh = [e for e in entries if not db.scalar(select(DealFeedEntry.id).where(DealFeedEntry.guid == e["guid"][:500]))]
     from . import llm_match
 
     if llm_match.enabled(db):
@@ -171,4 +172,11 @@ async def poll(db: Session) -> dict:
         new = [e for e in entries if not db.scalar(select(DealFeedEntry.id).where(DealFeedEntry.guid == e["guid"][:500]))]
         pairs = [(spec, cand, r) for e in new for _item, spec, cand, r in _pairs(db, split_title(e["title"])[1], threshold)]
         await llm_match.prefetch(db, pairs)
-    return ingest(db, entries)
+    stats = ingest(db, entries)
+    from . import deals
+
+    try:
+        stats["category_deals"] = await deals.match_rfd(db, fresh)
+    except Exception:  # noqa: BLE001  categories never break the feed
+        log.exception("category matching failed")
+    return stats

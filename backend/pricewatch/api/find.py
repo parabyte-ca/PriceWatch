@@ -4,9 +4,11 @@ The comparison is shown before anything is saved. Searches are cached for a week
 comparison reuses the same results (no second paid search) and every known store is tracked straight away.
 """
 
+import logging
 import re
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,7 @@ from ..services.matching import normalize_url
 from ..services.retailers import get_or_create_retailer
 from ..services.summary import summarize_items
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["find"])
 URL_RE = re.compile(r"https?://\S+")
 BARCODE_RE = re.compile(r"^\d{8,14}$")
@@ -81,34 +84,93 @@ def _transient(product: dict, query: str | None = None) -> Item:
     return item
 
 
-@router.post("/find")
-async def find(body: FindIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
-    product, link = await _resolve(db, body.q)
-    item = _transient(product)
-    query = build_query(item)
-    provider = get_provider(None)
-    out = {"query": query, "product": product, "link": link, "offers": [], "provider": None, "cached": False,
-           "notes": [], "best": None, "suggested_target_cents": None}
-    if provider is None:
-        out["notes"].append("Searching other stores needs a SerpApi key (.env) or a Claude key (Household admin).")
-        return out
-    try:
-        r = await compare(db, item, provider, force=body.force)
-    except DiscoveryError as exc:
-        raise HTTPException(409, str(exc)) from exc
-    cfg = settings_store.get_all(db, me.id)
+def _rows(offers: list[dict], cfg: dict) -> list[dict]:
     rows = []
-    for o in best_per_store(r["offers"]):
+    for o in best_per_store(offers):
         landed = landed_price(o["price_cents"], o["shipping_cents"], cfg["province"], cfg.get("tax_overrides") or {})
         rows.append({"merchant": o["merchant"], "title": o["title"], "url": o["url"], "store_link": o["store_link"],
                      "price_cents": o["price_cents"], "shipping_cents": o["shipping_cents"],
                      "landed_cents": landed["landed_cents"], "kind": o["kind"], "domain": o["domain"],
                      "confidence": o["confidence"], "method": o["method"]})
+    return rows
+
+
+def _with_best(out: dict, rows: list[dict]) -> dict:
     stores = [o for o in rows if o["kind"] == "store"]
-    out.update(query=r["query"], offers=rows, provider=provider.name, cached=r["cached"], notes=r["notes"],
-               best=stores[0] if stores else None,
+    out.update(offers=rows, best=stores[0] if stores else None,
                suggested_target_cents=suggest_target(stores[0]["price_cents"] if stores else None))
     return out
+
+
+async def _run_find(db: Session, me: User, q: str, force: bool, on_stage=None) -> dict:
+    product, link = await _resolve(db, q)
+    item = _transient(product)
+    out = {"query": build_query(item), "product": product, "link": link, "offers": [], "provider": None,
+           "cached": False, "notes": [], "best": None, "suggested_target_cents": None}
+    provider = get_provider(None)
+    if on_stage is not None:
+        await on_stage("product", dict(out))
+    if provider is None:
+        out["notes"].append("Searching other stores needs a SerpApi key (.env) or a Claude key (Household admin).")
+        return out
+    cfg = settings_store.get_all(db, me.id)
+    out["provider"] = provider.name
+
+    async def staged(name: str, offers: list[dict]) -> None:
+        if on_stage is not None:
+            await on_stage(name, _with_best(dict(out), _rows(offers, cfg)))
+
+    r = await compare(db, item, provider, force=force, on_stage=staged)
+    out.update(query=r["query"], cached=r["cached"], notes=r["notes"])
+    return _with_best(out, _rows(r["offers"], cfg))
+
+
+@router.post("/find")
+async def find(body: FindIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    try:
+        return await _run_find(db, me, body.q, body.force)
+    except DiscoveryError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/find/stream")
+async def find_stream(q: str = Query(min_length=1, max_length=500), force: bool = False,
+                      db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """The same comparison as POST /find, sent as Server-Sent Events while stores are found:
+    "product", then "search", "stores", "claude" (each with the offers so far), then "done" or "error"."""
+    import asyncio
+    import json
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def emit(name: str, data: dict) -> None:
+        await queue.put((name, data))
+
+    async def work() -> None:
+        try:
+            await emit("done", await _run_find(db, me, q, force, on_stage=emit))
+        except DiscoveryError as exc:
+            await emit("error", {"detail": str(exc)})
+        except HTTPException as exc:
+            await emit("error", {"detail": exc.detail})
+        except Exception:  # noqa: BLE001
+            log.exception("find stream failed")
+            await emit("error", {"detail": "Search failed; try again"})
+
+    async def events():
+        task = asyncio.create_task(work())
+        try:
+            while True:
+                name, data = await queue.get()
+                yield f"event: {name}\ndata: {json.dumps(data, default=str)}\n\n"
+                if name in ("done", "error"):
+                    break
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 class WatchIn(BaseModel):
@@ -148,3 +210,43 @@ async def watch(body: WatchIn, db: Session = Depends(get_db), me: User = Depends
     item = _load_item(db, item.id)
     out = item_out(db, item, summarize_items(db, [item], me.id)[item.id], with_sources=True, me=me)
     return {"item": out, "notes": notes}
+
+
+class ListingWrongIn(BaseModel):
+    url: str = Field(min_length=1, max_length=1000)
+    query: str | None = Field(default=None, max_length=300)
+    item_id: int | None = None
+    merchant: str | None = Field(default=None, max_length=120)
+
+
+@router.post("/feedback/not-this-product", status_code=204)
+def not_this_product(body: ListingWrongIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """One tap: this listing is not the product. Remembered for the search and the item; a watched store is hidden."""
+    from ..models import ListingFeedback, MarketOffer
+    from .items import _load_item
+
+    url = normalize_url(body.url)
+    query = (body.query or "").lower().strip()
+    if body.item_id:
+        item = _load_item(db, body.item_id, me, write=True)
+        query = query or build_query(item).lower().strip()
+        for s in item.sources:
+            if normalize_url(s.url) == url and s.status != "rejected":
+                s.status = "rejected"
+        db.query(MarketOffer).filter(MarketOffer.item_id == item.id, MarketOffer.url == url).delete()
+    db.add(ListingFeedback(item_id=body.item_id, query=query[:300], url=url, merchant=body.merchant,
+                           verdict="wrong", user_id=me.id))
+    db.commit()
+
+
+@router.post("/sources/{source_id}/only", status_code=204)
+def only_this_store(source_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """One tap: watch only this store for the item; the others are hidden (and stay hidden on later searches)."""
+    from .items import _load_source
+
+    src = _load_source(db, source_id, me, write=True)
+    for s in src.item.sources:
+        if s.id != src.id and s.status == "confirmed":
+            s.status = "rejected"
+    src.status = "confirmed"
+    db.commit()

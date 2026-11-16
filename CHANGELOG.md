@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.0] - 2026-11-16
+### Added
+- Deals by category on Home: follow kinds of products ("TVs", "kitchen accessories", "3D printers", "women's clothing"; presets included) and PriceWatch collects their deals. New RedFlagDeals threads are sorted into your categories by Claude Haiku (titles only; by the category's words without a key), and a Google Shopping "on sale" search runs per category daily in Black Friday week and Boxing Week (weekly otherwise), keeping listings at least 20% under their was-price. Each deal has Watch (opens Add with it) and Hide
+- Biggest drops on your items (latest store price against the week's high) and forum threads about your items, on Home
+- Claude sorts search listings: bundles, accessories, refurbished units, other models and marketplace sellers are folded away instead of compared or tracked (one Haiku call per search, cached per title, within the monthly cap)
+- Add shows stores as they are found (streamed: the first search, then store lists, then Claude), instead of after the whole search
+- One-tap fixes: "Not this" on any listing (on Add and on the item page) hides it from that search and item for good; "Only this" on a watched store hides the others
+
 ## [1.0.2] - 2026-11-16
 ### Fixed
 - Home showed only "List not found" when it remembered a list that no longer exists (with a single list there was no list picker to change it). It now falls back to all items

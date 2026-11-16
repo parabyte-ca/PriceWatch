@@ -13,7 +13,8 @@ interface FindResult {
   offers: FindOffer[]; best: FindOffer | null; suggested_target_cents: number | null;
 }
 
-const KIND_LABEL: Record<string, string> = { marketplace: "Marketplace sellers", other: "Other sites (not a known Canadian store)" };
+const KIND_LABEL: Record<string, string> = { marketplace: "marketplace seller", other: "not a known Canadian store", bundle: "bundle",
+  accessory: "accessory", refurbished: "refurbished or used", different: "different model" };
 
 const firstShared = (...values: (string | null)[]) => values.find((v) => v && v.trim()) || "";
 
@@ -33,23 +34,33 @@ export default function AddItem() {
   const [listId, setListId] = useState("");
   const [showOther, setShowOther] = useState(false);
 
-  const run = async (text: string, force = false) => {
-    if (!text.trim()) return;
-    setBusy("find"); setError(""); setRes(null);
-    try {
-      const r = await api<FindResult>("/api/find", { method: "POST", json: { q: text.trim(), force } });
-      setRes(r);
-      setName(r.product.name || text.trim());
-      setTarget(toDollars(r.suggested_target_cents));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy("");
-    }
+  const [stage, setStage] = useState("");
+  const STAGE_TEXT: Record<string, string> = {
+    product: "Working out the product…", search: "Found stores, looking for more…",
+    stores: "Opening store lists…", claude: "Asking Claude about the rest…", done: "",
   };
-  useEffect(() => { if (shared) void run(shared); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const run = (text: string, force = false) => {
+    if (!text.trim()) return;
+    setBusy("find"); setError(""); setRes(null); setStage("product");
+    const apply = (r: FindResult, final: boolean) => {
+      setRes(r);
+      if (final) { setName(r.product.name || text.trim()); setTarget(toDollars(r.suggested_target_cents)); }
+    };
+    const es = new EventSource(`/api/find/stream?q=${encodeURIComponent(text.trim())}${force ? "&force=true" : ""}`);
+    const stop = () => { es.close(); setBusy(""); setStage(""); };
+    for (const name of ["product", "search", "stores", "claude"]) {
+      es.addEventListener(name, (ev) => { setStage(name); apply(JSON.parse((ev as MessageEvent).data), false); });
+    }
+    es.addEventListener("done", (ev) => { apply(JSON.parse((ev as MessageEvent).data), true); stop(); });
+    es.addEventListener("error", (ev) => {
+      const data = (ev as MessageEvent).data;
+      setError(data ? JSON.parse(data).detail : "Search interrupted; try again");
+      stop();
+    });
+  };
+  useEffect(() => { if (shared) run(shared); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const submit = (e: FormEvent) => { e.preventDefault(); void run(q); };
+  const submit = (e: FormEvent) => { e.preventDefault(); run(q); };
 
   const watch = async () => {
     if (!res) return;
@@ -68,6 +79,13 @@ export default function AddItem() {
     }
   };
 
+  const notThis = (o: FindOffer) => {
+    if (!res) return;
+    api("/api/feedback/not-this-product", { method: "POST", json: { url: o.url, query: res.query, merchant: o.merchant } }).catch(() => {});
+    const offers = res.offers.filter((x) => x.url !== o.url);
+    const left = offers.filter((x) => x.kind === "store");
+    setRes({ ...res, offers, best: left[0] ?? null });
+  };
   const stores = res?.offers.filter((o) => o.kind === "store") ?? [];
   const others = res?.offers.filter((o) => o.kind !== "store") ?? [];
 
@@ -82,9 +100,9 @@ export default function AddItem() {
         </div>
         <details className="text-sm">
           <summary className="cursor-pointer text-slate-500">Scan a barcode with the camera</summary>
-          <div className="mt-2"><BarcodeScan onPick={(_n, _b, code) => { setQ(code); void run(code); }} /></div>
+          <div className="mt-2"><BarcodeScan onPick={(_n, _b, code) => { setQ(code); run(code); }} /></div>
         </details>
-        {busy === "find" && <p className="text-sm text-slate-500">Checking Canadian stores… this takes a few seconds.</p>}
+        {busy === "find" && <p className="text-sm text-slate-500">{STAGE_TEXT[stage] || "Checking Canadian stores…"}</p>}
         {error && <p className="text-sm text-red-600">{error}</p>}
       </form>
 
@@ -125,6 +143,8 @@ export default function AddItem() {
                     <div className="font-semibold">{money(o.price_cents)}</div>
                     <div className="text-xs text-slate-500">{money(o.landed_cents)} with tax</div>
                   </div>
+                  <button className="shrink-0 px-1 text-xs text-slate-400 hover:text-red-600" title="Not this product: hide it from this search from now on"
+                    onClick={() => notThis(o)}>Not this</button>
                 </li>
               ))}
             </ul>
@@ -133,7 +153,7 @@ export default function AddItem() {
           {others.length > 0 && (
             <div className="text-xs">
               <button className="text-slate-500 hover:underline" onClick={() => setShowOther(!showOther)}>
-                {showOther ? "Hide" : "Show"} {others.length} marketplace or other listing{others.length === 1 ? "" : "s"}
+                {showOther ? "Hide" : "Show"} {others.length} other listing{others.length === 1 ? "" : "s"} (bundles, accessories, marketplace sellers…)
               </button>
               {showOther && (
                 <ul className="mt-1 space-y-1">
@@ -143,7 +163,7 @@ export default function AddItem() {
                         {o.merchant}: {o.title}
                       </a>
                       <span className="shrink-0">{money(o.price_cents)}</span>
-                      <span className="shrink-0 text-slate-400">{KIND_LABEL[o.kind] ? (o.kind === "marketplace" ? "marketplace" : "other") : ""}</span>
+                      <span className="shrink-0 text-slate-400">{KIND_LABEL[o.kind] ?? o.kind}</span>
                     </li>
                   ))}
                 </ul>

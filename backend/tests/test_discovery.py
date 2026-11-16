@@ -233,3 +233,68 @@ def test_find_barcode_and_no_provider(client, monkeypatch):
     assert r["offers"] == [] and "SerpApi" in r["notes"][0]
     w = client.post("/api/watch", json={"name": "LEGO Titanic"}).json()
     assert w["item"]["name"] == "LEGO Titanic"
+
+
+def test_not_this_product_and_only_this_store(client, fake):
+    item = client.post("/api/items", json={"name": "Sony WH-1000XM6 Wireless Headphones Black", "brand": "Sony",
+                                           "model": "WH1000XM6/B"}).json()
+    client.post(f"/api/items/{item['id']}/discover", json={})
+    srcs = {s["retailer_name"]: s for s in client.get(f"/api/items/{item['id']}").json()["sources"]}
+    staples = srcs["Staples Canada"]
+    r = client.post("/api/feedback/not-this-product", json={"url": staples["url"], "item_id": item["id"]})
+    assert r.status_code == 204
+    client.post(f"/api/items/{item['id']}/discover", json={"force": True})  # the listing is skipped from now on
+    after = {s["retailer_name"]: s for s in client.get(f"/api/items/{item['id']}").json()["sources"]}
+    assert after["Staples Canada"]["status"] == "rejected"
+    assert all(o["url"] != staples["url"] for o in client.get(f"/api/items/{item['id']}/offers").json())
+    client.post(f"/api/sources/{after['Staples Canada']['id']}/only")
+    final = {s["retailer_name"]: s["status"] for s in client.get(f"/api/items/{item['id']}").json()["sources"]}
+    assert final == {"Staples Canada": "confirmed", "Best Buy Canada": "rejected"}
+
+
+def test_claude_sorts_bundles_and_accessories_out_of_the_comparison(client, fake, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from pricewatch.services import classify
+
+    class API:
+        calls = 0
+
+        @property
+        def messages(self):
+            return self
+
+        async def parse(self, **kw):
+            API.calls += 1
+            text = kw["messages"][0]["content"]
+            labels = [classify.Label(n=n, label="bundle" if "Staples" in line else "same")
+                      for n, line in enumerate(text.split("Listings:\n")[1].splitlines(), 1)]
+            return NS(parsed_output=classify.Labels(listings=labels), usage=None)
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(classify, "available", lambda: True)
+    import anthropic
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kw: API())
+    item = client.post("/api/items", json={"name": "Sony WH-1000XM6 Wireless Headphones Black", "brand": "Sony",
+                                           "model": "WH1000XM6/B"}).json()
+    client.post(f"/api/items/{item['id']}/discover", json={})
+    names = {s["retailer_name"] for s in client.get(f"/api/items/{item['id']}").json()["sources"]}
+    assert names == {"Best Buy Canada"}  # the Staples listing was a bundle: shown, not tracked
+    offers = client.get(f"/api/items/{item['id']}/offers").json()
+    assert next(o for o in offers if o["merchant"] == "Staples")["kind"] == "bundle"
+    client.post(f"/api/items/{item['id']}/discover", json={"force": True})
+    assert API.calls == 1  # labels are cached per title
+
+
+def test_find_stream_sends_stages(client, fake):
+    with client.stream("GET", "/api/find/stream", params={"q": "Sony WH-1000XM6 Wireless Headphones Black"}) as r:
+        body = "".join(r.iter_text())
+    names = [line.split(": ", 1)[1] for line in body.splitlines() if line.startswith("event: ")]
+    assert names[0] == "product" and names[-1] == "done" and "search" in names
+    import json
+
+    done = json.loads(body.split("event: done\ndata: ")[1].split("\n")[0])
+    assert done["best"]["price_cents"] == 42999

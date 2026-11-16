@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, Item, money } from "../api";
 import Badge from "../components/Badge";
+import HomeDeals from "../components/HomeDeals";
 import { useSession } from "../session";
 
 const isBuy = (i: Item) => i.summary.decision === "BUY" || i.summary.decision === "BUY_AND_PROTECT";
@@ -140,6 +141,8 @@ export default function Home() {
           <p className="card text-sm text-slate-500">Nothing is at a good price right now. PriceWatch will tell you when something is.</p>
         )}
       </section>
+
+      <HomeDeals />
 
       {groups.wait.length > 0 && (
         <section className="space-y-2">

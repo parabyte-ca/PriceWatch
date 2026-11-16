@@ -451,6 +451,59 @@ class MarketOffer(Base):
     kind: Mapped[str] = mapped_column(String(20), default="store")  # store | marketplace | bundle | other
 
 
+class ListingFeedback(Base):
+    """A household's one-tap correction: this search listing is not the product ("wrong")."""
+
+    __tablename__ = "listing_feedback"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int | None] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    query: Mapped[str] = mapped_column(String(300), index=True)  # lower-cased search text
+    url: Mapped[str] = mapped_column(String(1000))
+    merchant: Mapped[str | None] = mapped_column(String(120))
+    verdict: Mapped[str] = mapped_column(String(20), default="wrong")
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class DealCategory(Base):
+    """A kind of product someone wants deals on ("TVs", "kitchen accessories"), not a specific item."""
+
+    __tablename__ = "deal_categories"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    min_discount_pct: Mapped[int] = mapped_column(Integer, default=20)
+    max_price_cents: Mapped[int | None] = mapped_column(Integer)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_search_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class CategoryDeal(Base):
+    """A deal found for a category: from the RedFlagDeals feed or a Google Shopping "on sale" search."""
+
+    __tablename__ = "category_deals"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    category_id: Mapped[int] = mapped_column(ForeignKey("deal_categories.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(500))
+    url: Mapped[str] = mapped_column(String(1000))
+    store: Mapped[str | None] = mapped_column(String(120))
+    price_cents: Mapped[int | None] = mapped_column(Integer)
+    was_cents: Mapped[int | None] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(30))  # rfd | google_shopping
+    seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    @property
+    def discount_pct(self) -> int | None:
+        if self.price_cents and self.was_cents and self.was_cents > self.price_cents:
+            return round((self.was_cents - self.price_cents) * 100 / self.was_cents)
+        return None
+
+
 class LlmMatchCache(Base):
     """Cached Claude answers to "same product?" for one item description and one listing title."""
 

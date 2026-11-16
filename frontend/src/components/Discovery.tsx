@@ -94,6 +94,8 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
                   <div className="font-semibold">{money(o.price_cents)}</div>
                   <div className="text-xs text-slate-400">{o.shipping_cents === 0 ? "free ship" : o.shipping_cents ? `+${money(o.shipping_cents)} ship` : ""}</div>
                 </div>
+                <button className="shrink-0 px-1 text-xs text-slate-400 hover:text-red-600" title="Not this product: stop comparing this listing"
+                  onClick={async () => { await api("/api/feedback/not-this-product", { method: "POST", json: { url: o.url, item_id: item.id, merchant: o.merchant } }); onChange(); loadOffers(); }}>Not this</button>
                 {o.tracked ? <span className="w-16 shrink-0 text-center text-xs text-slate-500">{o.tracked === "confirmed" ? "watched" : o.tracked === "rejected" ? "hidden" : o.tracked}</span>
                   : o.store_link ? <button className="btn-ghost w-16 shrink-0 px-2 py-1 text-xs" onClick={() => track(o.url)} title="Check this store's page on a schedule">Track</button>
                   : <span className="w-16 shrink-0 text-center text-[11px] text-slate-400" title="Google Shopping did not give this store's own link">Google</span>}
