@@ -107,7 +107,8 @@ export interface PriceMatch {
 
 export interface Summary {
   best: { source_id: number; url: string; retailer: string | null; domain: string | null; landed: Landed;
-    was_price_cents: number | null; channel: string } | null;
+    was_price_cents: number | null; channel: string;
+    after_perks_cents?: number; perks_saving_cents?: number; perks?: { label: string; percent: number | null; kind: string }[] } | null;
   seasonal_low_cents: number | null;
   distance_to_low_pct: number | null;
   history_confidence: "LOW" | "MEDIUM" | "HIGH";

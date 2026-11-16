@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 MAX_RETRY_AFTER = 24 * 3600
 CONFIDENCE = {"jsonld": 0.95, "css": 0.9, "microdata": 0.85, "opengraph": 0.7, "keepa": 0.99,
-              "changedetection": 0.9, "manual": 1.0}
+              "changedetection": 0.9, "manual": 1.0, "bestbuy_api": 0.95}
 SKIP_MODES = ("manual", "changedetection")
 
 
@@ -121,6 +121,21 @@ async def fetch_and_parse(url: str, retailer: Retailer | None, mode: str, *, eta
     result: FetchResult
     parsed: ParsedProduct | None = None
     method = "http"
+
+    if mode == "bestbuy_api":
+        from ..adapters import bestbuy
+
+        api = bestbuy.api_url(url)
+        if api:
+            start = time.monotonic()
+            result = await fetcher.fetch(api, respect_robots=respect, min_interval=min_interval)
+            FETCH_SECONDS.labels(method="api").observe(time.monotonic() - start)
+            if result.outcome == "ok" and result.html:
+                parsed = bestbuy.parse_json(result.html, url)
+                if parsed and parsed.has_price:
+                    result.url = url
+                    return result, parsed, "api"
+        mode, etag, last_modified = "auto", None, None  # fall back to the product page
 
     if mode != "browser":
         start = time.monotonic()
@@ -402,6 +417,9 @@ async def check_source(source_id: int) -> str:
         db.commit()
         if previous is not None:
             run_alerts(db, src, previous, page_html)
+            from . import protection
+
+            await protection.add_screenshots(db, src)
         log.info("checked", extra={"source_id": src.id, "domain": domain, "status": status, "method": method})
         return status
     except Exception:

@@ -4,7 +4,7 @@ import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContai
 import { ago, api, EXCLUSIONS, Item, localTime, money, toCents, toDollars } from "../api";
 import Badge, { Confidence } from "../components/Badge";
 import { Suggestions } from "../components/Discovery";
-import { BoughtForm, DealThreads, PurchaseCard, PurchaseInfo } from "../components/Purchase";
+import { BoughtForm, DealThreads, FlyerMatches, PurchaseCard, PurchaseInfo } from "../components/Purchase";
 
 interface Series {
   source_id: number;
@@ -143,6 +143,12 @@ export default function ItemDetail() {
             <Stat label="30 / 60 / 90-day low" value={money(s.low_30_cents)}
               note={`${money(s.low_60_cents)} / ${money(s.low_90_cents)}${s.real_discount_pct != null ? `; ${s.real_discount_pct}% below 60-day median` : ""}`} />
           </div>
+          {s.best?.after_perks_cents != null && (
+            <div className="rounded-lg bg-blue-50 p-2 text-sm text-blue-900 dark:bg-blue-950 dark:text-blue-100">
+              After perks at {s.best.retailer}: <span className="font-semibold">{money(s.best.after_perks_cents)}</span>
+              {" "}({s.best.perks?.map((p) => p.label).join(" + ")}; {money(s.best.perks_saving_cents)} back). Perks come back later as cash back or points, so targets still use the till price.
+            </div>
+          )}
           {s.fake_sale && (
             <div className="rounded-lg bg-amber-100 p-2 text-sm text-amber-900">
               Fake sale warning: {s.fake_sale_reasons.join("; ")}.
@@ -321,6 +327,7 @@ export default function ItemDetail() {
         </div>
       )}
       <DealThreads itemId={item.id} />
+      <FlyerMatches itemId={item.id} />
       <Suggestions item={item} onChange={load} />
 
       <form className="card grid gap-3 md:grid-cols-3" onSubmit={saveEdits}>

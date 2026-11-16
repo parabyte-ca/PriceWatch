@@ -19,6 +19,9 @@ export interface PurchaseInfo {
   claimable_cents: number | null;
   claimed_cents: number | null;
   proof_count: number;
+  screenshots?: number;
+  reference_cents?: number | null;
+  saved_vs_median_cents?: number | null;
 }
 
 const today = () => new Date().toLocaleDateString("en-CA");
@@ -104,6 +107,9 @@ export function PurchaseCard({ p, onChange }: { p: PurchaseInfo; onChange: () =>
       </div>
       <div>{p.retailer_name}{p.channel !== "online" ? ` (${p.channel})` : ""}: paid {money(p.price_cents)} on {p.purchased_on}
         {p.order_ref ? `, order ${p.order_ref}` : ""}</div>
+      {p.saved_vs_median_cents ? (
+        <div className="text-xs text-green-700 dark:text-green-400">Saved {money(p.saved_vs_median_cents)} against the 60-day typical price of {money(p.reference_cents)}</div>
+      ) : null}
       {p.protection_until ? (
         <div className="text-xs text-slate-600 dark:text-slate-300">{p.protection_basis}; until {p.protection_until}
           {p.days_left != null && p.days_left >= 0 ? ` (${p.days_left} days left)` : ""}</div>
@@ -113,7 +119,7 @@ export function PurchaseCard({ p, onChange }: { p: PurchaseInfo; onChange: () =>
       )}
       {p.status === "claimed" && <div className="text-green-700">Claimed {money(p.claimed_cents)}</div>}
       <div className="flex flex-wrap gap-2 pt-1">
-        {p.proof_count > 0 && <a className="btn-ghost px-2 py-1 text-xs" href={`/api/purchases/${p.id}/proof`}>Proof package ({p.proof_count})</a>}
+        {p.proof_count > 0 && <a className="btn-ghost px-2 py-1 text-xs" href={`/api/purchases/${p.id}/proof`}>Proof package ({p.proof_count}{p.screenshots ? `, ${p.screenshots} screenshot${p.screenshots > 1 ? "s" : ""}` : ""})</a>}
         {p.status === "claimable" && (
           <button className="btn-primary px-2 py-1 text-xs" onClick={() =>
             api(`/api/purchases/${p.id}`, { method: "PATCH", json: { status: "claimed", claimed_cents: p.claimable_cents } }).then(onChange)}>
@@ -127,20 +133,73 @@ export function PurchaseCard({ p, onChange }: { p: PurchaseInfo; onChange: () =>
   );
 }
 
+interface ThreadSummary {
+  posts: number;
+  signals: Record<string, number>;
+  lowest_quoted_cents: number | null;
+  coupons: string[];
+  verdict: string;
+  vs_history?: string | null;
+}
+
+const SIGNAL_LABELS: Record<string, string> = {
+  all_time_low: "say all-time low",
+  wait: "say wait",
+  price_match_ok: "price-matched OK",
+  price_match_refused: "price match refused",
+  out_of_stock: "out of stock",
+  expired: "say it's over",
+};
+
 export function DealThreads({ itemId }: { itemId: number }) {
-  const [deals, setDeals] = useState<{ title: string; url: string; price_cents: number | null; tracked_source_id: number | null; published_at: string | null }[]>([]);
+  const [deals, setDeals] = useState<{ title: string; url: string; price_cents: number | null; tracked_source_id: number | null; published_at: string | null; summary: ThreadSummary | null }[]>([]);
   useEffect(() => { api<typeof deals>(`/api/items/${itemId}/deals`).then(setDeals).catch(() => {}); }, [itemId]);
   if (!deals.length) return null;
   return (
-    <div className="card space-y-1 text-sm">
+    <div className="card space-y-2 text-sm">
       <h2 className="font-semibold">Community deals (RedFlagDeals)</h2>
-      <p className="text-xs text-slate-500">Forum threads are hints; PriceWatch confirms prices on its own checks.</p>
+      <p className="text-xs text-slate-500">Forum threads are hints; PriceWatch confirms prices on its own checks. Comment signals are counted by keyword, so treat them as a rough read of the room.</p>
       {deals.map((d) => (
-        <div key={d.url}>
-          <a className="hover:underline" href={d.url} target="_blank" rel="noreferrer">{d.title}</a>
+        <div key={d.url} className="space-y-1 border-t border-slate-100 pt-2 first:border-0 first:pt-0 dark:border-slate-800">
+          <a className="break-words hover:underline" href={d.url} target="_blank" rel="noreferrer">{d.title}</a>
           <span className="ml-2 text-xs text-slate-500">
             {d.published_at ? new Date(d.published_at).toLocaleDateString("en-CA") : ""}{d.tracked_source_id ? " · store already tracked" : ""}
           </span>
+          {d.summary && d.summary.posts > 0 && (
+            <div className="text-xs">
+              <span className={`mr-2 rounded px-1.5 py-0.5 font-semibold ${d.summary.verdict === "crowd says good price" ? "bg-green-100 text-green-900" : d.summary.verdict === "crowd says wait" ? "bg-amber-100 text-amber-900" : d.summary.verdict === "likely over" ? "bg-slate-200 text-slate-700" : "bg-slate-100 text-slate-700"}`}>
+                {d.summary.verdict}
+              </span>
+              <span className="text-slate-600 dark:text-slate-300">
+                {d.summary.posts} posts
+                {Object.entries(d.summary.signals).filter(([, n]) => n > 0).map(([k, n]) => ` · ${n} ${SIGNAL_LABELS[k] || k}`).join("")}
+                {d.summary.lowest_quoted_cents ? ` · lowest quoted ${money(d.summary.lowest_quoted_cents)}` : ""}
+                {d.summary.coupons.length ? ` · codes: ${d.summary.coupons.join(", ")}` : ""}
+              </span>
+              {d.summary.vs_history && <div className="mt-1 text-amber-700 dark:text-amber-400">{d.summary.vs_history}</div>}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function FlyerMatches({ itemId }: { itemId: number }) {
+  const [rows, setRows] = useState<{ id: number; merchant: string; title: string; price_cents: number | null; valid_to: string | null; url: string | null; current: boolean }[]>([]);
+  useEffect(() => { api<typeof rows>(`/api/items/${itemId}/flyers`).then(setRows).catch(() => {}); }, [itemId]);
+  const current = rows.filter((r) => r.current);
+  if (!current.length) return null;
+  return (
+    <div className="card space-y-1 text-sm">
+      <h2 className="font-semibold">In this week's flyers</h2>
+      <p className="text-xs text-slate-500">Flyer prices are often in-store or regional. They are hints and do not count as price history.</p>
+      {current.map((r) => (
+        <div key={r.id} className="flex flex-wrap items-baseline justify-between gap-x-3">
+          <span className="min-w-0">
+            <span className="font-medium">{r.merchant}</span>: {r.url ? <a className="hover:underline" href={r.url} target="_blank" rel="noreferrer">{r.title}</a> : r.title}
+          </span>
+          <span>{money(r.price_cents)}{r.valid_to ? <span className="text-xs text-slate-500"> until {new Date(r.valid_to).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}</span> : null}</span>
         </div>
       ))}
     </div>

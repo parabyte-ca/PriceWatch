@@ -2,6 +2,7 @@
 
 import time
 from collections import defaultdict
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -109,6 +110,18 @@ def revoke_token(me: User = Depends(current_user), db: Session = Depends(get_db)
 
 class ListIn(BaseModel):
     name: str = Field(min_length=1, max_length=120)
+    occasion: str | None = Field(default=None, max_length=120)
+    recipient: str | None = Field(default=None, max_length=120)
+    event_date: date | None = None
+    budget_cents: int | None = Field(default=None, ge=0)
+
+
+class ListUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    occasion: str | None = Field(default=None, max_length=120)
+    recipient: str | None = Field(default=None, max_length=120)
+    event_date: date | None = None
+    budget_cents: int | None = Field(default=None, ge=0)
 
 
 class InviteIn(BaseModel):
@@ -131,7 +144,14 @@ def _list_out(db: Session, lst: WishList, me: User) -> dict:
                          .where(ListMember.list_id == lst.id).order_by(ListMember.id)).all()
     count = db.scalar(select(func.count(Item.id)).where(Item.list_id == lst.id, Item.active.is_(True)))
     my_role = next((m.role for m, u in members if u.id == me.id), None)
+    from ..services.savings import list_spent
+
+    spent = list_spent(db, lst.id)
     return {"id": lst.id, "name": lst.name, "role": my_role, "items": count, "shared": len(members) > 1,
+            "occasion": lst.occasion, "recipient": lst.recipient,
+            "event_date": lst.event_date.isoformat() if lst.event_date else None,
+            "budget_cents": lst.budget_cents, "spent_cents": spent,
+            "remaining_cents": (lst.budget_cents - spent) if lst.budget_cents is not None else None,
             "members": [{"user_id": u.id, "display_name": u.display_name, "role": m.role} for m, u in members]}
 
 
@@ -142,7 +162,8 @@ def my_lists(me: User = Depends(current_user), db: Session = Depends(get_db)):
 
 @router.post("/lists", status_code=201)
 def create_list(body: ListIn, me: User = Depends(current_user), db: Session = Depends(get_db)):
-    lst = WishList(name=body.name.strip(), owner_id=me.id)
+    lst = WishList(name=body.name.strip(), owner_id=me.id, occasion=body.occasion, recipient=body.recipient,
+                   event_date=body.event_date, budget_cents=body.budget_cents)
     db.add(lst)
     db.flush()
     db.add(ListMember(list_id=lst.id, user_id=me.id, role="owner"))
@@ -151,11 +172,12 @@ def create_list(body: ListIn, me: User = Depends(current_user), db: Session = De
 
 
 @router.patch("/lists/{list_id}")
-def rename_list(list_id: int, body: ListIn, me: User = Depends(current_user), db: Session = Depends(get_db)):
+def rename_list(list_id: int, body: ListUpdate, me: User = Depends(current_user), db: Session = Depends(get_db)):
     lst = _list_or_404(db, list_id)
     if users_svc.role_in(db, me, list_id) != "owner":
-        raise HTTPException(403, "Only the list owner can rename it")
-    lst.name = body.name.strip()
+        raise HTTPException(403, "Only the list owner can change it")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(lst, k, v.strip() if isinstance(v, str) else v)
     db.commit()
     return _list_out(db, lst, me)
 

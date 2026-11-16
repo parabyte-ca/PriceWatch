@@ -17,7 +17,9 @@ from . import __version__, scheduler
 from .api import accounts as accounts_api
 from .api import extra as extra_api
 from .api import items as items_api
+from .api import perks as perks_api
 from .api import purchases as purchases_api
+from .api import push as push_api
 from .api import system as system_api
 from .api import updates as updates_api
 from .auth import AuthMiddleware, bootstrap, load_secret_key
@@ -73,6 +75,8 @@ def create_app() -> FastAPI:
     app.include_router(accounts_api.router)
     app.include_router(purchases_api.router)
     app.include_router(updates_api.router)
+    app.include_router(perks_api.router)
+    app.include_router(push_api.router)
 
     @app.get("/healthz")
     def healthz():
@@ -115,6 +119,8 @@ def create_app() -> FastAPI:
             return JSONResponse({"detail": "Not found"}, status_code=404)
         candidate = (STATIC_DIR / path).resolve()
         if path and candidate.is_file() and STATIC_DIR.resolve() in candidate.parents:
+            if path == "sw.js":  # browsers must always see the newest service worker
+                return FileResponse(candidate, media_type="text/javascript", headers={"Cache-Control": "no-cache"})
             return FileResponse(candidate)
         index = STATIC_DIR / "index.html"
         if index.is_file():

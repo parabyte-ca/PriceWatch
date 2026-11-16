@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.6.1-blue)
+![Version](https://img.shields.io/badge/version-0.7.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,13 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- App notifications on each phone or computer (Web Push from the installed app, over HTTPS) with Open deal and Snooze buttons, alongside ntfy/Apprise
+- Savings page: what you spent, what you saved against the typical (60-day median) price, what you claimed back, per person and per list
+- Gift lists with occasion, recipient, date and a budget (spent vs remaining)
+- Per-store perks you enter (cash-back portal, discounted gift cards, card bonus): the best offer also shows an "after perks" price
+- RedFlagDeals comment summary per matched thread: crowd verdict (good price, wait, likely over), price-match reports, lowest quoted price, coupon codes, and a warning when the crowd disagrees with PriceWatch's own history
+- Weekly flyers (opt-in): Flipp search near your postal code once a day; flyer prices are hints and never price history
+- Test a product page (System): see what PriceWatch reads from a real retailer page and save a cleaned fixture for a new parser
 - In-app updates for admins (System page, Updates): pick a release, watch live progress, roll back. A root cron job on TrueNAS (the upgrade agent, installed with `midclt`) validates the request and runs `update.sh` (backup, signature check, health check, automatic rollback); the container can only drop a small JSON request
 - Price protection: record a purchase ("Bought") and PriceWatch keeps checking that store through the protection window (Costco 30 days; Best Buy's Black Friday Price Guarantee on badged items; or the days you enter). A claimable drop sends an instant alert and saves a proof package (page snapshot, SHA-256, UTC and local timestamps, parsed price) you can download as a zip
 - RedFlagDeals Hot Deals feed every 15 minutes: threads are matched to everyone's items by model number or title, linked to stores you already track, duplicate threads collapse into one alert, and a tracked store is re-checked right away. Threads are hints, never prices
@@ -124,7 +131,7 @@ notification URLs are also editable on the Settings page.
 | `PRICEWATCH_BLACKFRIDAY_INTERVAL_MINUTES` | `30` | Interval for the top hot items in Black Friday mode |
 | `PRICEWATCH_BLACKFRIDAY_MAX_ITEMS` | `25` | How many hot items get the Black Friday interval |
 | `PRICEWATCH_BREAKER_BLOCKS` / `_HOURS` | `3` / `6` | Circuit breaker for blocking domains |
-| `PRICEWATCH_PUBLIC_URL` | empty | Address your phone uses; enables ntfy action buttons |
+| `PRICEWATCH_PUBLIC_URL` | empty | Address your phone uses; enables ntfy action buttons. Use the https:// address for app notifications |
 | `KEEPA_API_KEY` | empty | Amazon.ca prices and history via Keepa |
 | `CHANGEDETECTION_URL` / `CHANGEDETECTION_API_KEY` | empty | changedetection.io bridge |
 | `PRICEWATCH_BROWSER_ENABLED` | `true` | Use the Playwright sidecar |
@@ -134,6 +141,12 @@ notification URLs are also editable on the Settings page.
 | `SERPAPI_KEY` | empty | Enables SerpApi Google Shopping discovery |
 | `BRIGHTDATA_API_KEY` | empty | Enables Bright Data SERP discovery |
 | `BRIGHTDATA_ZONE` | `serp_api1` | Bright Data SERP API zone name |
+
+App notifications (Web Push) need the app opened over HTTPS (Tailscale Serve or your reverse proxy); plain
+http:// on the LAN cannot subscribe. The server's VAPID key is `data/vapid_private.pem` (keep it with your
+backups; replacing it means each device turns notifications on again). Weekly flyer matching is off by default
+(Settings, household section, with a postal code); it uses Flipp's public search, which is unofficial and may
+stop answering, in which case it simply does nothing.
 
 Search is used only for discovery, never for scheduled polling. The monthly search limit
 (default 200), match threshold and auto-confirm on exact GTIN are on the Settings page. Google

@@ -38,3 +38,23 @@ async def render(url: str, ws_endpoint: str, timeout: float, user_agent: str,
         finally:
             await context.close()
             await browser.close()
+
+
+async def screenshot(url: str, ws_endpoint: str, timeout: float, user_agent: str) -> bytes:
+    """Full-page PNG of the page as a person would see it (for price-protection proof)."""
+    from playwright.async_api import async_playwright
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.connect(ws_endpoint, timeout=timeout * 1000)
+        context = await browser.new_context(user_agent=user_agent, locale="en-CA", viewport={"width": 1280, "height": 1600})
+        page = await context.new_page()
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+            try:
+                await page.wait_for_load_state("networkidle", timeout=min(10.0, timeout) * 1000)
+            except Exception:  # noqa: BLE001
+                pass
+            return await page.screenshot(full_page=True, timeout=timeout * 1000)
+        finally:
+            await context.close()
+            await browser.close()

@@ -129,13 +129,13 @@ class FromUrlIn(BaseModel):
 
 class SourceCreate(BaseModel):
     url: HttpUrl
-    fetch_mode: Literal["auto", "http", "browser"] | None = None
+    fetch_mode: Literal["auto", "http", "browser", "bestbuy_api"] | None = None
 
 
 class SourceUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     status: Literal["suggested", "confirmed", "rejected"] | None = None
-    fetch_mode: Literal["auto", "http", "browser", "keepa", "manual", "changedetection"] | None = None
+    fetch_mode: Literal["auto", "http", "browser", "bestbuy_api", "keepa", "manual", "changedetection"] | None = None
     channel: str | None = Field(default=None, pattern=r"^(online|warehouse|store:[\w-]{1,30}|province:[A-Z]{2})$")
 
 
@@ -177,7 +177,7 @@ class RetailerOut(BaseModel):
 class RetailerUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str | None = None
-    fetch_mode: Literal["auto", "http", "browser", "keepa", "manual"] | None = None
+    fetch_mode: Literal["auto", "http", "browser", "bestbuy_api", "keepa", "manual"] | None = None
     min_interval_seconds: float | None = Field(default=None, ge=20)
     selectors: dict[str, str] | None = None
     respect_robots: bool | None = None

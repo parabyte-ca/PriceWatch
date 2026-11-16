@@ -3,6 +3,7 @@
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, HttpUrl
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
@@ -165,3 +166,20 @@ def system(db: Session = Depends(get_db)):
             for r in recent
         ],
     }
+
+
+class DiagnoseIn(BaseModel):
+    url: HttpUrl
+    browser: bool = True
+    save_fixture: bool = False
+
+
+@router.post("/admin/diagnose")
+async def diagnose_url(body: DiagnoseIn, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Test how PriceWatch sees a product page (robots, status, challenge, structured data, parsed price)."""
+    from ..services.diagnose import diagnose
+    from ..services.retailers import get_or_create_retailer
+
+    retailer = get_or_create_retailer(db, str(body.url))
+    db.commit()
+    return await diagnose(str(body.url), retailer, body.browser, body.save_fixture)

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ago, api, localTime, money, toCents, toDollars } from "../api";
+import { Diagnose, Perks } from "../components/Tools";
 import Updates from "../components/Updates";
 import { useSession } from "../session";
 
@@ -59,6 +60,8 @@ export default function SystemPage() {
   return (
     <div className="space-y-4">
       {user?.role === "admin" && <Updates />}
+      {user?.role === "admin" && <Diagnose />}
+      <Perks admin={user?.role === "admin"} />
       <div className="card grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <div><div className="label">Version</div>{data.version}</div>
         <div><div className="label">Items / sources</div>{data.items} / {data.sources}</div>
@@ -110,6 +113,7 @@ export default function SystemPage() {
                 <td className="td">
                   <select className="input w-auto py-1" value={r.fetch_mode} onChange={(e) => patch(r.id, { fetch_mode: e.target.value })}>
                     <option value="auto">auto</option><option value="http">http only</option><option value="browser">browser</option>
+                    {r.domain === "bestbuy.ca" && <option value="bestbuy_api">product JSON (beta)</option>}
                     <option value="keepa">keepa</option><option value="manual">manual only</option>
                   </select>
                 </td>

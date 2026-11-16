@@ -1,5 +1,58 @@
 import { useState } from "react";
-import { api } from "../api";
+import { api, money, toCents, toDollars } from "../api";
+import { ListInfo } from "../session";
+
+function GiftDetails({ l, onSave }: { l: ListInfo; onSave: (body: object) => void }) {
+  const [open, setOpen] = useState(false);
+  const [occasion, setOccasion] = useState(l.occasion || "");
+  const [recipient, setRecipient] = useState(l.recipient || "");
+  const [eventDate, setEventDate] = useState(l.event_date || "");
+  const [budget, setBudget] = useState(toDollars(l.budget_cents));
+  const days = l.event_date ? Math.ceil((new Date(l.event_date + "T00:00").getTime() - Date.now()) / 86400000) : null;
+  const pct = l.budget_cents ? Math.min(100, Math.round((l.spent_cents / l.budget_cents) * 100)) : 0;
+  const over = l.remaining_cents !== null && l.remaining_cents < 0;
+  return (
+    <div className="space-y-2">
+      {(l.occasion || l.recipient || l.event_date) && (
+        <div className="text-sm text-slate-600 dark:text-slate-300">
+          {[l.occasion, l.recipient && `for ${l.recipient}`].filter(Boolean).join(" ")}
+          {l.event_date && <> · {new Date(l.event_date + "T00:00").toLocaleDateString("en-CA", { dateStyle: "medium" })}{days !== null && days >= 0 && ` (${days} days)`}</>}
+        </div>
+      )}
+      {l.budget_cents !== null ? (
+        <div className="space-y-1">
+          <div className="flex flex-wrap justify-between gap-2 text-sm">
+            <span>Spent {money(l.spent_cents)} of {money(l.budget_cents)}</span>
+            <span className={over ? "font-semibold text-red-600" : "text-green-700 dark:text-green-400"}>
+              {over ? `${money(-(l.remaining_cents || 0))} over` : `${money(l.remaining_cents)} left`}
+            </span>
+          </div>
+          <div className="h-2 overflow-hidden rounded bg-slate-200 dark:bg-slate-800">
+            <div className={`h-2 ${over ? "bg-red-600" : "bg-green-600"}`} style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+      ) : l.spent_cents > 0 ? <div className="text-sm">Spent {money(l.spent_cents)}</div> : null}
+      {l.role === "owner" && (
+        <button className="text-xs text-slate-500 hover:underline" onClick={() => setOpen(!open)}>
+          {open ? "Close" : "Gift details and budget"}
+        </button>
+      )}
+      {open && (
+        <form className="grid items-end gap-2 sm:grid-cols-5" onSubmit={(e) => {
+          e.preventDefault();
+          onSave({ occasion: occasion || null, recipient: recipient || null, event_date: eventDate || null, budget_cents: toCents(budget) });
+          setOpen(false);
+        }}>
+          <div className="min-w-0"><label className="label">Occasion</label><input className="input" placeholder="Christmas" value={occasion} onChange={(e) => setOccasion(e.target.value)} /></div>
+          <div className="min-w-0"><label className="label">For</label><input className="input" placeholder="Name" value={recipient} onChange={(e) => setRecipient(e.target.value)} /></div>
+          <div className="min-w-0"><label className="label">Date</label><input className="input" type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)} /></div>
+          <div className="min-w-0"><label className="label">Budget ($)</label><input className="input" inputMode="decimal" value={budget} onChange={(e) => setBudget(e.target.value)} /></div>
+          <button className="btn-ghost">Save</button>
+        </form>
+      )}
+    </div>
+  );
+}
 import { useSession } from "../session";
 
 export default function Lists() {
@@ -35,6 +88,7 @@ export default function Lists() {
               }}>Rename</button>
             )}
           </div>
+          <GiftDetails l={l} onSave={(body) => run(() => api(`/api/lists/${l.id}`, { method: "PATCH", json: body }), "Saved")} />
           <div className="text-sm">
             Members: {l.members.map((m) => (
               <span key={m.user_id} className="mr-3 inline-flex items-center gap-1">

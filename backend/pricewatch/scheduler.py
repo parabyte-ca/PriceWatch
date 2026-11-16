@@ -110,8 +110,23 @@ async def deal_feed() -> None:
     db = session_scope()
     try:
         await dealfeed.poll(db)
+        from .services import rfdthread
+
+        await rfdthread.refresh(db)
     except Exception:  # noqa: BLE001
         log.exception("deal feed failed")
+    finally:
+        db.close()
+
+
+async def flyers() -> None:
+    from .services import flyers as flyer_service
+
+    db = session_scope()
+    try:
+        await flyer_service.poll(db)
+    except Exception:  # noqa: BLE001
+        log.exception("flyer poll failed")
     finally:
         db.close()
 
@@ -136,6 +151,7 @@ def start() -> AsyncIOScheduler:
     _scheduler.add_job(changedetection_sync, "interval", minutes=15, id="changedetection", max_instances=1,
                        coalesce=True)
     _scheduler.add_job(deal_feed, "interval", minutes=15, id="deal_feed", max_instances=1, coalesce=True)
+    _scheduler.add_job(flyers, "interval", hours=1, id="flyers", max_instances=1, coalesce=True)
     _scheduler.start()
     return _scheduler
 

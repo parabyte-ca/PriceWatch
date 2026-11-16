@@ -11,7 +11,7 @@ from ..models import Retailer
 SEED = [
     ("bestbuy.ca", "Best Buy Canada", "auto", None),
     ("walmart.ca", "Walmart Canada", "browser", 60),
-    ("canadiantire.ca", "Canadian Tire", "auto", None),
+    ("canadiantire.ca", "Canadian Tire", "browser", 45),
     ("sportchek.ca", "Sport Chek", "auto", None),
     ("staples.ca", "Staples Canada", "auto", None),
     ("memoryexpress.com", "Memory Express", "auto", None),
@@ -36,6 +36,9 @@ def seed_retailers(db: Session) -> None:
             db.add(Retailer(domain=domain, name=name, fetch_mode=mode, min_interval_seconds=interval))
         elif domain == "amazon.ca" and existing[domain].fetch_mode == "auto":
             existing[domain].fetch_mode = "keepa"  # no direct Amazon scraping by default
+        elif domain == "canadiantire.ca" and existing[domain].fetch_mode == "auto":
+            existing[domain].fetch_mode = "browser"  # prices are rendered by script; plain pages carry none
+            existing[domain].min_interval_seconds = existing[domain].min_interval_seconds or 45
     db.commit()
     seed_policies(db)
 

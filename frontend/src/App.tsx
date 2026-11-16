@@ -5,6 +5,7 @@ import AddItem from "./pages/AddItem";
 import Board from "./pages/Board";
 import Lists from "./pages/Lists";
 import Purchases from "./pages/Purchases";
+import Savings from "./pages/Savings";
 import { CurrentUser, ListInfo, SessionContext } from "./session";
 import ItemDetail from "./pages/ItemDetail";
 import Login from "./pages/Login";
@@ -25,6 +26,7 @@ const nav = [
   ["/add", "Add"],
   ["/lists", "Lists"],
   ["/purchases", "Bought"],
+  ["/savings", "Savings"],
   ["/settings", "Settings"],
   ["/system", "System"],
 ];
@@ -97,6 +99,7 @@ export default function App() {
         <Route path="/board" element={<Board />} />
         <Route path="/lists" element={<Lists />} />
         <Route path="/purchases" element={<Purchases />} />
+        <Route path="/savings" element={<Savings />} />
         <Route path="/items/:id" element={<ItemDetail />} />
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="/system" element={<SystemPage />} />
