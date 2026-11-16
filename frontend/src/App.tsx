@@ -13,6 +13,7 @@ import SettingsPage from "./pages/Settings";
 import SystemPage from "./pages/System";
 import Home from "./pages/Home";
 import Me from "./pages/Me";
+import Shared from "./pages/Shared";
 
 interface MeInfo {
   authenticated: boolean;
@@ -67,6 +68,8 @@ export default function App() {
     return () => window.removeEventListener("pricewatch:unauthorized", onUnauth);
   }, []);
 
+  // a family member opening a shared gift list: no account needed
+  if (path.startsWith("/shared/")) return <Shared token={path.slice("/shared/".length)} />;
   if (!me) return <div className="p-6 text-slate-500">Loading...</div>;
   if (!me.authenticated) return <Login configured={me.configured !== false} onDone={refresh} />;
 

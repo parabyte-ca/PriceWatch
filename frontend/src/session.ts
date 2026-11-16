@@ -21,6 +21,9 @@ export interface ListInfo {
   budget_cents: number | null;
   spent_cents: number;
   remaining_cents: number | null;
+  share_link: string | null;
+  share_on: boolean;
+  share_show_bought: boolean;
 }
 
 export interface Session {

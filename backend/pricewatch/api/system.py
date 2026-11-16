@@ -58,6 +58,17 @@ def patch_settings(body: dict, db: Session = Depends(get_db), me: User = Depends
         current = settings_store.get(db, "notify_urls", me.id) or []
         masked = {settings_store.mask_url(u): u for u in current}
         body["notify_urls"] = [masked.get(u, u) for u in urls if u.strip()]
+        if me.role != "admin":
+            # members may not point notifications at the home network (the server would send to it)
+            from .. import netguard
+
+            for u in body["notify_urls"]:
+                if u in masked.values():
+                    continue
+                host = netguard.host_of(u)
+                if host and netguard.static_reason(f"https://{host}/"):
+                    raise HTTPException(422, f"Notifications can't go to a home-network address ({host}); "
+                                             "ask the household admin to add it")
     numeric = {"match_threshold": (50, 100), "serp_monthly_limit": (0, 100000), "alert_drop_pct": (1, 90),
                "fake_sale_pct": (0, 50), "good_within_pct": (0, 50)}
     for key, (lo, hi) in numeric.items():
@@ -180,7 +191,9 @@ async def diagnose_url(body: DiagnoseIn, db: Session = Depends(get_db), _: User 
     """Test how PriceWatch sees a product page (robots, status, challenge, structured data, parsed price)."""
     from ..services.diagnose import diagnose
     from ..services.retailers import get_or_create_retailer
+    from .items import _public_or_422
 
+    _public_or_422(str(body.url))
     retailer = get_or_create_retailer(db, str(body.url))
     db.commit()
     return await diagnose(str(body.url), retailer, body.browser, body.save_fixture)

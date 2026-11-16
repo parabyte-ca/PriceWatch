@@ -89,6 +89,36 @@ export default function Lists() {
             )}
           </div>
           <GiftDetails l={l} onSave={(body) => run(() => api(`/api/lists/${l.id}`, { method: "PATCH", json: body }), "Saved")} />
+          {l.role === "owner" && (
+            <div className="space-y-1 rounded-lg bg-slate-50 p-2 text-sm dark:bg-slate-800/50">
+              {l.share_on && l.share_link ? (
+                <>
+                  <div className="font-medium">Family link (read only, no account needed)</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <code className="min-w-0 flex-1 select-all break-all text-xs">{location.origin + l.share_link}</code>
+                    <button className="btn-ghost px-2 py-1 text-xs" onClick={() =>
+                      navigator.clipboard?.writeText(location.origin + l.share_link).then(() => setMsg("Link copied")).catch(() => {})}>Copy</button>
+                    {"share" in navigator && (
+                      <button className="btn-ghost px-2 py-1 text-xs" onClick={() =>
+                        navigator.share({ title: l.name, url: location.origin + l.share_link }).catch(() => {})}>Share</button>
+                    )}
+                  </div>
+                  <label className="flex items-center gap-2 text-xs">
+                    <input type="checkbox" checked={l.share_show_bought}
+                      onChange={(e) => run(() => api(`/api/lists/${l.id}/share`, { method: "POST", json: { show_bought: e.target.checked } }))} />
+                    Show what's already bought (so nobody buys it twice)
+                  </label>
+                  <button className="text-xs text-red-600 hover:underline" onClick={() => confirm("Stop sharing? The link stops working.") &&
+                    run(() => api(`/api/lists/${l.id}/share`, { method: "DELETE" }), "Link turned off")}>Stop sharing</button>
+                  <p className="text-xs text-slate-500">Anyone with the link sees item names, current prices and store links. Never your budget, prices paid or notes. Only send it to people who are not getting these gifts.</p>
+                </>
+              ) : (
+                <button className="btn-ghost px-2 py-1 text-xs" onClick={() => run(() => api(`/api/lists/${l.id}/share`, { method: "POST", json: {} }), "Family link ready")}>
+                  Create a family link (read only)
+                </button>
+              )}
+            </div>
+          )}
           <div className="text-sm">
             Members: {l.members.map((m) => (
               <span key={m.user_id} className="mr-3 inline-flex items-center gap-1">

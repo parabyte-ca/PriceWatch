@@ -8,6 +8,7 @@ services:
       PRICEWATCH_AUTH_MODE: password
       PRICEWATCH_MIN_DOMAIN_INTERVAL: "5"
       PRICEWATCH_NOTIFY_URLS: ""
+      PRICEWATCH_ALLOW_PRIVATE_URLS: "true"  # the fixture server is on the private Docker network
     depends_on:
       - fixtures
   browser:

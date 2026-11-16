@@ -44,6 +44,9 @@ class WishList(Base):
     recipient: Mapped[str | None] = mapped_column(String(120))
     event_date: Mapped[date | None] = mapped_column(Date)
     budget_cents: Mapped[int | None] = mapped_column(Integer)
+    # read-only link for family (no account): /shared/<token>; None = not shared
+    share_token: Mapped[str | None] = mapped_column(String(64), unique=True)
+    share_show_bought: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     members: Mapped[list["ListMember"]] = relationship(back_populates="list", cascade="all, delete-orphan")
