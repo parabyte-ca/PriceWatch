@@ -56,34 +56,40 @@ export default function App() {
   return (
     <SessionContext.Provider value={{ user: me.user || null, lists, reloadLists }}>
     <div className="mx-auto max-w-6xl px-4 pb-16">
-      <header className="flex flex-wrap items-center justify-between gap-2 py-4">
-        <NavLink to="/" className="flex items-center gap-2 text-lg font-bold">
-          <img src="/icon.svg" alt="" className="h-7 w-7" /> PriceWatch CA
-        </NavLink>
-        <nav className="flex gap-1 text-sm">
+      <header className="pt-4">
+        <div className="flex items-center justify-between gap-2">
+          <NavLink to="/" className="flex min-w-0 items-center gap-2 text-lg font-bold">
+            <img src="/icon.svg" alt="" className="h-7 w-7 shrink-0" /> <span className="truncate">PriceWatch<span className="hidden sm:inline"> CA</span></span>
+          </NavLink>
+          <div className="flex shrink-0 items-center gap-2 text-sm">
+            {me.user && <span className="max-w-[8rem] truncate text-slate-500">{me.user.display_name}</span>}
+            {me.mode === "password" && (
+              <button
+                className="whitespace-nowrap rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-200 dark:text-slate-300 dark:hover:bg-slate-800"
+                onClick={() => api("/api/auth/logout", { method: "POST" }).then(refresh)}
+              >
+                Sign out
+              </button>
+            )}
+          </div>
+        </div>
+        {/* one row that scrolls sideways on small screens instead of wrapping */}
+        <nav className="-mx-4 mt-3 flex items-center gap-1 overflow-x-auto px-4 pb-2 text-sm [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {nav.map(([to, label]) => (
             <NavLink
               key={to}
               to={to}
               end={to === "/"}
               className={({ isActive }) =>
-                `rounded-lg px-3 py-1.5 ${isActive ? "bg-red-700 text-white" : "hover:bg-slate-200 dark:hover:bg-slate-800"}`
+                `shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 ${isActive ? "bg-red-700 text-white" : "hover:bg-slate-200 dark:hover:bg-slate-800"}`
               }
             >
               {label}
             </NavLink>
           ))}
-          {me.user && <span className="hidden px-2 py-1.5 text-slate-500 sm:inline">{me.user.display_name}</span>}
-          {me.mode === "password" && (
-            <button
-              className="rounded-lg px-3 py-1.5 hover:bg-slate-200 dark:hover:bg-slate-800"
-              onClick={() => api("/api/auth/logout", { method: "POST" }).then(refresh)}
-            >
-              Sign out
-            </button>
-          )}
         </nav>
       </header>
+      <div className="h-3" />
       <Routes>
         <Route path="/" element={<Wishlist />} />
         <Route path="/add" element={<AddItem />} />

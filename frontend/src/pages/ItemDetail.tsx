@@ -214,15 +214,15 @@ export default function ItemDetail() {
 
       <div className="card overflow-x-auto">
         <h2 className="mb-2 font-semibold">Sources</h2>
-        <table className="w-full">
+        <table className="w-full table-fixed sm:table-auto">
           <thead>
             <tr>
-              <th className="th">Retailer</th>
+              <th className="th w-1/2 sm:w-auto">Retailer</th>
               <th className="th text-right">Price</th>
               <th className="th text-right">Landed</th>
-              <th className="th">Stock</th>
-              <th className="th">Checked</th>
-              <th className="th"></th>
+              <th className="th hidden sm:table-cell">Stock</th>
+              <th className="th hidden sm:table-cell">Checked</th>
+              <th className="th hidden sm:table-cell"></th>
             </tr>
           </thead>
           <tbody>
@@ -241,18 +241,29 @@ export default function ItemDetail() {
                       src.last_condition && src.last_condition !== "new" ? src.last_condition.replace("_", " ") : null,
                       src.fetch_mode && src.fetch_mode !== "auto" ? `via ${src.fetch_mode}` : null].filter(Boolean).join(" · ")}
                   </div>
-                  {src.last_error && <div className="text-xs text-red-600">{src.last_error}</div>}
+                  {src.last_error && <div className="break-words text-xs text-red-600">{src.last_error}</div>}
+                  <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-500 sm:hidden">
+                    <span>{src.last_in_stock == null ? "stock ?" : src.last_in_stock ? "in stock" : "out of stock"} · {ago(src.last_checked_at)}</span>
+                    {!src.url.startsWith("manual://") && (
+                      <button className="btn-ghost px-2 py-0.5 text-xs" onClick={() => run(async () => {
+                        const r = await api<{ outcome: string }>(`/api/sources/${src.id}/check`, { method: "POST" });
+                        flash(`Check result: ${r.outcome}`);
+                      })}>Check</button>
+                    )}
+                    <button className="btn-ghost px-2 py-0.5 text-xs text-red-600" onClick={() => confirm("Remove this source and its history?") &&
+                      run(() => api(`/api/sources/${src.id}`, { method: "DELETE" }), "Source removed")}>Remove</button>
+                  </div>
                 </td>
                 <td className="td text-right">
                   {money(src.last_price_cents)}
                   {src.last_was_price_cents && <div className="text-xs text-slate-500 line-through">{money(src.last_was_price_cents)}</div>}
                 </td>
                 <td className="td text-right">{money(src.landed?.landed_cents)}</td>
-                <td className="td">{src.last_in_stock == null ? "?" : src.last_in_stock ? "In stock" : "Out"}</td>
-                <td className="td whitespace-nowrap text-xs text-slate-500" title={`Next: ${localTime(src.next_check_at)}`}>
+                <td className="td hidden sm:table-cell">{src.last_in_stock == null ? "?" : src.last_in_stock ? "In stock" : "Out"}</td>
+                <td className="td hidden whitespace-nowrap text-xs text-slate-500 sm:table-cell" title={`Next: ${localTime(src.next_check_at)}`}>
                   {ago(src.last_checked_at)}
                 </td>
-                <td className="td whitespace-nowrap text-right">
+                <td className="td hidden whitespace-nowrap text-right sm:table-cell">
                   {!src.url.startsWith("manual://") && (
                     <button className="btn-ghost px-2 py-1 text-xs"
                       onClick={() => run(async () => {
@@ -282,7 +293,7 @@ export default function ItemDetail() {
           </tbody>
         </table>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
-          <form className="flex gap-2" onSubmit={(e) => {
+          <form className="flex min-w-0 gap-2" onSubmit={(e) => {
             e.preventDefault();
             run(() => api(`/api/items/${id}/sources`, { method: "POST", json: { url: newUrl.trim() } }), "Source added; first check within a minute")
               .then(() => setNewUrl(""));
@@ -290,15 +301,15 @@ export default function ItemDetail() {
             <input className="input" type="url" required placeholder="Add another retailer URL" value={newUrl} onChange={(e) => setNewUrl(e.target.value)} />
             <button className="btn-ghost">Add</button>
           </form>
-          <form className="flex gap-2" onSubmit={(e) => {
+          <form className="flex min-w-0 flex-wrap gap-2 sm:flex-nowrap" onSubmit={(e) => {
             e.preventDefault();
             run(() => api(`/api/items/${id}/manual`, { method: "POST", json: {
               store: manual.store, price_cents: toCents(manual.price), shipping_cents: toCents(manual.shipping),
             } }), "Manual price recorded").then(() => setManual({ store: "", price: "", shipping: "" }));
           }}>
             <input className="input" required placeholder="Store" value={manual.store} onChange={(e) => setManual({ ...manual, store: e.target.value })} />
-            <input className="input w-28" required inputMode="decimal" placeholder="Price" value={manual.price} onChange={(e) => setManual({ ...manual, price: e.target.value })} />
-            <input className="input w-24" inputMode="decimal" placeholder="Ship" value={manual.shipping} onChange={(e) => setManual({ ...manual, shipping: e.target.value })} />
+            <input className="input w-[calc(50%-0.25rem)] sm:w-28" required inputMode="decimal" placeholder="Price" value={manual.price} onChange={(e) => setManual({ ...manual, price: e.target.value })} />
+            <input className="input w-[calc(50%-0.25rem)] sm:w-24" inputMode="decimal" placeholder="Ship" value={manual.shipping} onChange={(e) => setManual({ ...manual, shipping: e.target.value })} />
             <button className="btn-ghost">Log</button>
           </form>
         </div>
