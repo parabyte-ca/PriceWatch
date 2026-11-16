@@ -98,23 +98,11 @@ def record_purchase(item_id: int, body: PurchaseIn, db: Session = Depends(get_db
     if not name:
         raise HTTPException(422, "Choose the store you bought from")
     bought = body.purchased_on or events.local_now().date()
-    member = bool(settings_store.get(db, "my_best_buy_member", me.id))
-    days, until, basis = protection.terms(db, domain, bought, member, body.badged)
-    if body.protection_days is not None:
-        days = body.protection_days
-        until = bought + timedelta(days=days) if days else None
-        basis = f"{days}-day protection (entered by you)" if days else None
-    ref, ref_basis = savings.reference_price(db, item.id)
-    p = Purchase(reference_cents=ref, reference_basis=ref_basis, item_id=item.id, user_id=me.id,
-                 source_link_id=src.id if src else None, retailer_domain=domain,
-                 retailer_name=name, channel=body.channel if not src else (src.channel or body.channel),
-                 price_cents=body.price_cents, shipping_cents=body.shipping_cents, purchased_on=bought,
-                 protection_days=days, protection_until=until, protection_basis=basis, badged=body.badged,
-                 order_ref=body.order_ref, notes=body.notes,
-                 status="watching" if until and until >= events.local_now().date() else "closed")
-    db.add(p)
-    if body.stop_tracking:
-        item.active = False  # no more deal alerts; sources keep being checked while protection is open
+    p = protection.create_purchase(
+        db, user_id=me.id, item=item, src=src, retailer_name=name, retailer_domain=domain, price_cents=body.price_cents,
+        purchased_on=bought, channel=body.channel, shipping_cents=body.shipping_cents, badged=body.badged,
+        protection_days=body.protection_days, order_ref=body.order_ref, notes=body.notes,
+        stop_tracking=body.stop_tracking)
     db.commit()
     return _out(db, p)
 

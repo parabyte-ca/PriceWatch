@@ -436,3 +436,22 @@ class LlmMatchCache(Base):
     reason: Mapped[str | None] = mapped_column(String(300))
     model: Mapped[str] = mapped_column(String(60))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class EmailImport(Base):
+    """One order-confirmation email read from the import mailbox, and what PriceWatch made of it."""
+
+    __tablename__ = "email_imports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    message_id: Mapped[str] = mapped_column(String(300), unique=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    subject: Mapped[str | None] = mapped_column(String(300))
+    received_at: Mapped[datetime | None] = mapped_column(DateTime)
+    retailer_domain: Mapped[str | None] = mapped_column(String(200))
+    order_ref: Mapped[str | None] = mapped_column(String(60))
+    method: Mapped[str] = mapped_column(String(20), default="rules")  # rules | claude
+    lines: Mapped[list | None] = mapped_column(JSON)  # [{name, price_cents, quantity, item_id, purchase_id}]
+    status: Mapped[str] = mapped_column(String(20), default="new")  # recorded | partial | unmatched | ignored | error
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

@@ -38,8 +38,14 @@ def enabled(db: Session) -> bool:
     return bool(get_settings().anthropic_api_key) and bool(settings_store.get(db, "llm_match_enabled"))
 
 
-def in_band(score: float) -> bool:
-    return LOW <= score < HIGH
+def similarity(confidence: float) -> float:
+    """Title similarity (0 to 100) behind a fuzzy match's confidence, which the matcher scales to 0 to 0.9."""
+    return confidence / 0.9 * 100
+
+
+def in_band(confidence: float) -> bool:
+    """True for fuzzy matches whose title similarity is 80 to 94: likely, but worth a second opinion."""
+    return LOW <= round(similarity(confidence), 1) < HIGH
 
 
 def _describe(spec: ItemSpec, cand: Candidate) -> tuple[str, str]:

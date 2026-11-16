@@ -35,7 +35,7 @@ Done in v0.7.0: Web Push, spend and savings dashboard, weekly flyer matching. Do
 hardening (readiness, load dry run, pre-event backup, stale flags), basket optimiser, Boxing Week mode, Claude Haiku
 match check (discovery only). Done in v0.9.0: Home Assistant sensors, barcode scan
 to add, Claude check for the deal feed and flyers. Done in v0.10.0: price-drop estimate, weekly report with an optional Claude
-summary. Still open: email-forward ingestion (needs an IMAP mailbox), Visualping 2026 review (after Nov 27).
+summary. Done in v0.11.0: order-email import. Still open: Visualping 2026 review (after Nov 27), Sport Chek / Canadian Tire parser once a fixture is captured on TrueNAS.
 
 ## Phase 4 (after Cyber Monday)
 

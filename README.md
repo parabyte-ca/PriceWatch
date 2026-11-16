@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.10.1-blue)
+![Version](https://img.shields.io/badge/version-0.11.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,7 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- Order-email import: forward a store's order confirmation to a dedicated mailbox and the purchase is recorded with its price protection, no typing
 - Home Assistant sensors (buy-now count, claimable money, every item's price and verdict); see `docs/home-assistant.md`
 - Scan a barcode in a store to add an item with its UPC, for exact matching
 - "Will it get cheaper?" estimate per item from its own history and the sale calendar, with reasons
@@ -141,6 +142,7 @@ notification URLs are also editable on the Settings page.
 | `PRICEWATCH_BREAKER_BLOCKS` / `_HOURS` | `3` / `6` | Circuit breaker for blocking domains |
 | `PRICEWATCH_PUBLIC_URL` | empty | Address your phone uses; enables ntfy action buttons. Use the https:// address for app notifications |
 | `KEEPA_API_KEY` | empty | Amazon.ca prices and history via Keepa |
+| `PRICEWATCH_IMAP_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_FOLDER` | empty / `993` / empty / empty / `INBOX` | Mailbox for forwarded order emails (also turn import on in Settings) |
 | `ANTHROPIC_API_KEY` | empty | Claude Haiku second opinion on uncertain matches (also on in Settings) |
 | `PRICEWATCH_LLM_MATCH_MODEL` | `claude-haiku-5-5` | Model for that check |
 | `CHANGEDETECTION_URL` / `CHANGEDETECTION_API_KEY` | empty | changedetection.io bridge |
@@ -157,6 +159,11 @@ http:// on the LAN cannot subscribe. The server's VAPID key is `data/vapid_priva
 backups; replacing it means each device turns notifications on again). Weekly flyer matching is off by default
 (Settings, household section, with a postal code); it uses Flipp's public search, which is unofficial and may
 stop answering, in which case it simply does nothing.
+
+Order-email import reads one folder of a mailbox you create for it (for Gmail: turn on 2-step verification, create
+an app password, use `imap.gmail.com`). Each person enters the address they forward from in Settings so purchases
+land on their own list; anything else goes to the admin. Imported purchases keep deal alerts on unless the match
+is near certain (model number, MPN, GTIN or identical title), so a wrong match never silences an item.
 
 Search is used only for discovery, never for scheduled polling. The monthly search limit
 (default 200), match threshold and auto-confirm on exact GTIN are on the Settings page. Google

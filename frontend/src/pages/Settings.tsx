@@ -48,6 +48,9 @@ interface SettingsData {
   postal_code: string;
   alert_flyer: boolean;
   weekly_report_enabled: boolean;
+  email_import_enabled: boolean;
+  email_import_llm: boolean;
+  order_email_from: string;
   min_claim_cents: number;
   provinces: Record<string, { name: string; rate: number }>;
   timezone: string;
@@ -176,6 +179,13 @@ export default function SettingsPage() {
         </div>
         <Toggle k="discover_on_add" label="Search automatically when adding an item by name" />
         <Toggle k="deal_feed_enabled" label="Watch the RedFlagDeals Hot Deals feed (every 15 minutes)" />
+        <Toggle k="email_import_enabled" label="Import forwarded order emails (needs the PRICEWATCH_IMAP_* mailbox)" />
+        {s.email_import_enabled && (
+          <>
+            <Toggle k="email_import_llm" label="Let Claude Haiku read order emails (sends the email text to Anthropic)" />
+            <p className="text-xs text-slate-500">Off: PriceWatch looks for your tracked items line by line and records only those. On: Claude also reads the store, order number and every line, so less needs linking by hand.</p>
+          </>
+        )}
         <Toggle k="flyers_enabled" label="Match weekly flyers (Flipp search, once a day; off by default)" />
         {s.flyers_enabled && (
           <div>
@@ -223,6 +233,10 @@ export default function SettingsPage() {
           <Toggle k="alert_deal_feed" label="RedFlagDeals thread for my items (instant; else digest)" />
           <Toggle k="alert_flyer" label="Flyer match (instant at or under target; else digest)" />
           <Toggle k="weekly_report_enabled" label="Weekly report (Sunday 18:00)" />
+          <div className="sm:col-span-2">
+            <label className="label">My order emails come from (the address you forward from; comma separated)</label>
+            <input className="input" placeholder="you@example.com" value={s.order_email_from || ""} onChange={(e) => set("order_email_from", e.target.value)} />
+          </div>
           {s.is_admin && <Toggle k="alert_domain_blocked" label="Retailer blocking checks (instant)" />}
           <Toggle k="alert_all_time_low" label="New low (instant; else digest)" />
           <Toggle k="alert_source_failing" label="Source failing 24 h (instant; else digest)" />
