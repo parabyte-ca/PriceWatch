@@ -8,6 +8,9 @@
 - eBay Canada through the official Browse API (optional `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET`): new, fixed-price listings appear with the marketplace sellers for reference
 - Health check (System page, and a line in the admin's weekly report): stores whose checks mostly fail, watched stores without a fresh price, items without any price, search and Claude budgets, the forum feed and backups
 
+### Fixed
+- Search treated another generation as the same product (an original Switch OLED matched "Nintendo Switch 2", which made BUY NOW and the price-match cards wrong). Generation numbers after a product name ("Switch 2", "iPhone 16", "PlayStation 5") now have to agree, sizes and counts ("65 inch", "6 Qt", "7-in-1") are ignored, and "2nd generation" counts as 2. The next price refresh hides stores already matched to the wrong generation
+
 ## [1.1.0] - 2026-11-16
 ### Added
 - Deals by category on Home: follow kinds of products ("TVs", "kitchen accessories", "3D printers", "women's clothing"; presets included) and PriceWatch collects their deals. New RedFlagDeals threads are sorted into your categories by Claude Haiku (titles only; by the category's words without a key), and a Google Shopping "on sale" search runs per category daily in Black Friday week and Boxing Week (weekly otherwise), keeping listings at least 20% under their was-price. Each deal has Watch (opens Add with it) and Hide

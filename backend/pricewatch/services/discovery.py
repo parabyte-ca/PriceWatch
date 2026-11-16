@@ -114,7 +114,9 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
     if provider is None:
         raise DiscoveryError("No search provider configured. Set SERPAPI_KEY in .env or add a Claude key")
     r = await compare(db, item, provider, force=force, client=client)
+    dropped = drop_wrong_generation(db, item)
     market = save_offers(db, item, r["offers"], query=r["query"])
+    market["dropped"] = dropped
     db.commit()
     log.info("discovery", extra={"item_id": item.id, "provider": provider.name, "cached": r["cached"],
                                  "candidates": len(r["candidates"]), "added": market["added"]})
@@ -255,6 +257,28 @@ async def compare(db: Session, item: Item, provider, *, force: bool = False,
         r.pop("token", None)
     out.sort(key=lambda r: (not r["accepted"], -r["confidence"]))
     return {"query": query, "cached": cached, "candidates": out, "offers": offers, "notes": notes}
+
+
+def drop_wrong_generation(db: Session, item: Item) -> int:
+    """Hide watched stores found by search whose listing is another generation ("Switch" for a "Switch 2" item).
+
+    Catches stores matched before the generation check existed; stores added by hand are left alone.
+    """
+    from .matching import generation_conflict
+
+    want = " ".join(x for x in (item.name, item.model) if x)
+    n = 0
+    for src in item.sources:
+        if src.status != "confirmed" or not src.discovered_via or not src.title:
+            continue
+        why = generation_conflict(want, src.title)
+        if why:
+            src.status = "rejected"
+            src.last_error = f"Hidden: the listing is a different generation ({why})"
+            n += 1
+    if n:
+        db.commit()
+    return n
 
 
 def rejected_listings(db: Session, query: str, item_id: int | None) -> set[str]:
