@@ -183,3 +183,31 @@ def test_weekly_report(client, pages, sent, monkeypatch):
     title, body = weekly.build(db, db.query(User).first())
     assert body.startswith("Buy the headphones now.\n\nBuy now:")
     db.close()
+
+
+def test_generic_titles_use_url_name():
+    from pricewatch.adapters.base import clean_name, name_from_url
+
+    url = "https://www.sportchek.ca/en/pdp/toronto-raptors-nike-men-s-standard-issue-hoodie-86259822f.334692194.html"
+    assert clean_name("General PDP Template", url, "Sport Chek") == "Toronto Raptors Nike Men's Standard Issue Hoodie"
+    assert clean_name("Sport Chek", url, "Sport Chek").startswith("Toronto Raptors")
+    assert clean_name("Sony WH-1000XM6 Headphones", url, "Sport Chek") == "Sony WH-1000XM6 Headphones"
+    assert name_from_url("https://www.canadiantire.ca/en/pdp/mastercraft-20v-drill-kit-0543210p.html") == \
+        "Mastercraft 20V Drill Kit"
+    assert name_from_url("https://www.costco.ca/x.product.html") is None
+
+
+def test_preview_replaces_template_title(client, pages):
+    pages["/en/pdp/toronto-raptors-hoodie-86259822f.334692194.html"] = \
+        "<html><head><title>General PDP Template</title></head><body>loading</body></html>"
+    from pricewatch.db import session_scope
+    from pricewatch.models import Retailer
+
+    db = session_scope()
+    r = db.query(Retailer).filter_by(domain="sportchek.ca").one()
+    r.fetch_mode, r.min_interval_seconds = "http", None  # seeded browser mode and 45 s spacing; not needed here
+    db.commit()
+    db.close()
+    resp = client.post("/api/preview", json={
+        "url": "https://www.sportchek.ca/en/pdp/toronto-raptors-hoodie-86259822f.334692194.html"}).json()
+    assert resp["product"]["name"] == "Toronto Raptors Hoodie" and resp["product"]["price_cents"] is None

@@ -171,6 +171,10 @@ async def preview(body: UrlIn, db: Session = Depends(get_db),
     if retailer.fetch_mode == "keepa":
         return await _keepa_preview(url, retailer)
     result, parsed, method = await fetch_and_parse(url, retailer, retailer.fetch_mode, use_cache=True)
+    from ..adapters.base import ParsedProduct, clean_name
+
+    parsed = parsed or ParsedProduct()
+    parsed.name = clean_name(parsed.name, url, retailer.name)
     return {
         "url": url,
         "domain": domain_of(url),

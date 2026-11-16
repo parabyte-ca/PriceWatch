@@ -110,3 +110,34 @@ def parse_condition(value) -> str | None:
         return None
     token = str(value).lower().rsplit("/", 1)[-1]
     return CONDITION_MAP.get(token, token)
+
+
+GENERIC_TITLE_RE = re.compile(
+    r"(template|page not found|not found|access denied|just a moment|attention required|are you a robot|"
+    r"error|loading|untitled|home ?page|^\W*$)", re.I)
+URL_ID_RE = re.compile(r"[-_.]?\d{5,}[a-z]?(?:\.\d+)?$|[-_.]p?\d{6,}.*$", re.I)
+
+
+def name_from_url(url: str) -> str | None:
+    """'.../toronto-raptors-nike-men-s-standard-issue-hoodie-86259822f.334692194.html' -> readable product name."""
+    from urllib.parse import unquote, urlsplit
+
+    parts = [p for p in urlsplit(url).path.split("/") if p]
+    for seg in reversed(parts):
+        seg = unquote(seg)
+        seg = re.sub(r"\.(html?|aspx?|php)$", "", seg, flags=re.I)
+        seg = URL_ID_RE.sub("", seg)
+        words = [w for w in re.split(r"[-_+]+", seg) if w]
+        if len(words) >= 2 and sum(w.isalpha() for w in words) >= 2:
+            text = " ".join(words)
+            text = re.sub(r"\b(\w+) s\b", r"\1's", text)  # men s -> men's
+            return " ".join(w.upper() if any(c.isdigit() for c in w) else w.capitalize() for w in text.split())[:300]
+    return None
+
+
+def clean_name(name: str | None, url: str, retailer_name: str | None = None) -> str | None:
+    """Drop page titles that are not product names (templates, errors, the store's own name)."""
+    n = (name or "").strip()
+    generic = (not n or len(n) < 4 or bool(GENERIC_TITLE_RE.search(n))
+               or (retailer_name and n.lower().replace(" canada", "") == retailer_name.lower().replace(" canada", "")))
+    return (name_from_url(url) or n or None) if generic else n

@@ -75,7 +75,7 @@ def test_add_by_url_and_target_alert(client, pages, sent):
 
 
 def test_check_records_history_and_drop_alert(client, pages, sent):
-    item = client.post("/api/items/from-url", json={"url": "https://www.sportchek.ca/drill"}).json()
+    item = client.post("/api/items/from-url", json={"url": "https://www.memoryexpress.com/drill"}).json()
     sid = item["sources"][0]["id"]
     pages["overrides"]["/drill"] = fixture_html("jsonld_graph_aggregate.html").replace('"149.00"', '"119.00"')
     r = client.post(f"/api/sources/{sid}/check")

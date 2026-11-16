@@ -140,8 +140,12 @@ export default function AddItem() {
                   </div>
                 ) : (
                   <div className="text-amber-700">
-                    No price found ({preview.error || preview.outcome}). You can still save it and add prices by hand,
-                    or switch this retailer to browser mode on the System page.
+                    No price found yet. {preview.method === "browser"
+                      ? "The store's page did not show a price to the browser in time; it may be slow or blocking automated visits."
+                      : "The page has no readable price without a browser."}{" "}
+                    You can still save it: PriceWatch keeps trying on its schedule, and you can log prices by hand on the item page.
+                    An admin can run System, "Test a product page" with this URL and save a fixture so a parser can be added.
+                    <details className="mt-1 text-xs text-slate-500"><summary className="cursor-pointer">Details</summary><span className="break-all">{preview.error || preview.outcome}</span></details>
                   </div>
                 )}
                 {(p?.brand || p?.mpn || p?.gtin) && (
