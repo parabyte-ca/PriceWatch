@@ -20,7 +20,7 @@ IMAGE=ghcr.io/parabyte-ca/pricewatch
 STATE=.state
 LOG=logs/update.log
 mkdir -p "$STATE" logs
-exec > >(tee -a "$LOG") 2>&1
+[ -n "${PRICEWATCH_UPDATE_CHILD:-}" ] || exec > >(tee -a "$LOG") 2>&1  # a child deploy writes through its parent
 # UTC timestamps: the in-app progress view reads these lines to show which step is running
 log() { echo "[update $(date -u +%FT%TZ)] $*"; }
 die() { log "ERROR: $*"; exit 1; }
@@ -37,6 +37,7 @@ while [ $# -gt 0 ]; do
     --version) TARGET="v${2#v}"; shift 2 ;;
     --ref) REF="$2"; shift 2 ;;
     --rollback) MODE=rollback; shift ;;
+    --deploy-current) MODE=deploy; shift ;;  # internal: deploy the checked-out release with its own script
     *) die "unknown option $1" ;;
   esac
 done
@@ -87,12 +88,27 @@ restore_db() {
   chown 568:568 "$DATA/pricewatch.db" 2>/dev/null || true
 }
 
+# Deploy with the checked-out release's own update.sh, so a release that changes its containers (1.0 dropped the
+# browser sidecar) is deployed by a script that knows about the change. Runs as a separate process so any failing step
+# stops the deploy and the update rolls back.
+deploy_checkout() {
+  local script=update.sh
+  grep -q -- "--deploy-current" "$script" 2>/dev/null || script="$STATE/update-run.sh"
+  PRICEWATCH_UPDATE_COPY=1 PRICEWATCH_UPDATE_CHILD=1 PRICEWATCH_ROOT="$ROOT" \
+    bash "$script" --deploy-current ${REF:+--ref "$REF"}
+}
+
+if [ "$MODE" = deploy ]; then
+  deploy_current_checkout
+  exit 0
+fi
+
 if [ "$MODE" = rollback ]; then
   PREV=$(cat "$STATE/previous_ref" 2>/dev/null) || die "no previous deployment recorded"
   log "rolling back to $PREV"
   git checkout -q "$PREV"
   [ -f "$STATE/pre-update.db" ] && restore_db "$STATE/pre-update.db"
-  deploy_current_checkout
+  deploy_checkout || die "rollback deploy failed"
   if wait_healthy; then
     log "rollback complete: $(curl -fsS "http://127.0.0.1:$PORT/healthz")"
   else
@@ -126,18 +142,16 @@ fi
 
 echo "$CURRENT" > "$STATE/previous_ref"
 git checkout -q "$TARGET_REF"
-deploy_current_checkout
-if wait_healthy; then
+if deploy_checkout && wait_healthy; then
   git describe --tags --exact-match 2>/dev/null > "$STATE/current_ref" || git rev-parse HEAD > "$STATE/current_ref"
   log "update complete: $(curl -fsS "http://127.0.0.1:$PORT/healthz")"
   log "to roll back: sudo ./update.sh --rollback"
 else
-  log "health check failed; rolling back automatically"
+  log "update failed (deploy or health check); rolling back automatically"
   docker compose logs --tail 50 pricewatch || true
   git checkout -q "$CURRENT"
   [ -f "$STATE/pre-update.db" ] && restore_db "$STATE/pre-update.db"
-  deploy_current_checkout
-  if wait_healthy; then
+  if deploy_checkout && wait_healthy; then
     die "update failed; rolled back to $CURRENT"
   fi
   die "update and rollback both failed; check docker compose logs"

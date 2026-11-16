@@ -32,3 +32,10 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
+
+  # The browser sidecar was removed in 1.0. This placeholder never runs (scale 0): it lets update scripts from before
+  # 1.0 finish ("docker compose build browser") and makes "docker compose up" remove the old container.
+  browser:
+    image: busybox:1.37
+    container_name: pricewatch-browser
+    scale: 0
