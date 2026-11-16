@@ -114,7 +114,7 @@ export default function SettingsPage() {
 
       <div className="card space-y-3">
         <h2 className="font-semibold">Buy rule, Black Friday mode and digest</h2>
-        {s.is_admin ? <><div className="grid grid-cols-2 gap-3">
+        {s.is_admin ? <><div className="grid grid-cols-2 items-end gap-3">
           <div>
             <label className="label">BUY within % of seasonal low</label>
             <input className="input" type="number" step="0.5" value={s.buy_within_pct} onChange={(e) => set("buy_within_pct", Number(e.target.value))} />
@@ -147,7 +147,7 @@ export default function SettingsPage() {
 
       {s.is_admin && <div className="card space-y-3">
         <h2 className="font-semibold">Discovery and matching (household)</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 items-end gap-3">
           <div>
             <label className="label">Title match threshold (%)</label>
             <input className="input" type="number" min={50} max={100} value={s.match_threshold}
@@ -185,7 +185,7 @@ export default function SettingsPage() {
             {s.env_notify_urls.length > 0 && ` Also from .env: ${s.env_notify_urls.join(", ")}.`}
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           <Toggle k="alert_target" label="BUY / BUY + PROTECT (instant)" />
           <Toggle k="alert_back_in_stock" label="Back in stock (instant)" />
           <Toggle k="alert_deal_feed" label="RedFlagDeals thread for my items (instant; else digest)" />

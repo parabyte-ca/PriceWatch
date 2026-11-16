@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1] - 2026-11-16
+### Fixed
+- Phone layout: the menu is one sideways-scrolling row (it overflowed and stretched the active tab), and the user name and Sign out moved to the top bar
+- Inputs in two-column settings rows line up when one label wraps
+- Item page fits narrow screens: sources table shows stock, last check and actions under the store name; the manual price form wraps
+- Long codes and URLs wrap instead of widening the page; alert toggles stack on phones
+
 ## [0.6.0] - 2026-11-15
 ### Added
 - In-app updates for admins (System page): choose a release, check for updates, roll back, live log and status
