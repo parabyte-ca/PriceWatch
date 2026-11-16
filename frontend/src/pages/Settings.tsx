@@ -47,6 +47,7 @@ interface SettingsData {
   flyers_enabled: boolean;
   postal_code: string;
   alert_flyer: boolean;
+  weekly_report_enabled: boolean;
   min_claim_cents: number;
   provinces: Record<string, { name: string; rate: number }>;
   timezone: string;
@@ -221,6 +222,7 @@ export default function SettingsPage() {
           <Toggle k="alert_back_in_stock" label="Back in stock (instant)" />
           <Toggle k="alert_deal_feed" label="RedFlagDeals thread for my items (instant; else digest)" />
           <Toggle k="alert_flyer" label="Flyer match (instant at or under target; else digest)" />
+          <Toggle k="weekly_report_enabled" label="Weekly report (Sunday 18:00)" />
           {s.is_admin && <Toggle k="alert_domain_blocked" label="Retailer blocking checks (instant)" />}
           <Toggle k="alert_all_time_low" label="New low (instant; else digest)" />
           <Toggle k="alert_source_failing" label="Source failing 24 h (instant; else digest)" />

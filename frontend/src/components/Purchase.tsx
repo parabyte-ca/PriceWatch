@@ -205,3 +205,22 @@ export function FlyerMatches({ itemId }: { itemId: number }) {
     </div>
   );
 }
+
+export function Forecast({ itemId }: { itemId: number }) {
+  const [f, setF] = useState<{ chance: "low" | "medium" | "high" | null; likely_low_cents: number | null; reasons: string[]; note: string } | null>(null);
+  useEffect(() => { api<typeof f>(`/api/items/${itemId}/forecast`).then(setF).catch(() => {}); }, [itemId]);
+  if (!f) return null;
+  const tone = f.chance === "high" ? "text-amber-700 dark:text-amber-400" : f.chance === "low" ? "text-green-700 dark:text-green-400" : "";
+  return (
+    <div className="card space-y-1 text-sm">
+      <h2 className="font-semibold">Will it get cheaper?</h2>
+      {f.chance ? (
+        <div className={`font-medium ${tone}`}>
+          Chance of a lower price soon: {f.chance}{f.likely_low_cents ? `, likely around ${money(f.likely_low_cents)} before tax` : ""}
+        </div>
+      ) : null}
+      <ul className="list-disc pl-5 text-slate-600 dark:text-slate-300">{f.reasons.map((r) => <li key={r}>{r}</li>)}</ul>
+      <p className="text-xs text-slate-500">{f.note}</p>
+    </div>
+  );
+}

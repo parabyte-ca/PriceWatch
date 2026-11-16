@@ -161,6 +161,14 @@ def item_deals(item_id: int, db: Session = Depends(get_db), me: User = Depends(c
              "published_at": r.published_at.isoformat() + "Z" if r.published_at else None} for r in rows]
 
 
+@router.get("/items/{item_id}/forecast")
+def item_forecast(item_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Chance of a lower price soon, with the reasons."""
+    from ..services import forecast
+
+    return forecast.for_item(db, _load_item(db, item_id, me))
+
+
 @router.get("/items/{item_id}/flyers")
 def item_flyers(item_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
     """Weekly flyer matches (opt-in; Flipp search near the household postal code)."""

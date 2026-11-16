@@ -4,7 +4,7 @@ import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContai
 import { ago, api, EXCLUSIONS, Item, localTime, money, toCents, toDollars } from "../api";
 import Badge, { Confidence } from "../components/Badge";
 import { Suggestions } from "../components/Discovery";
-import { BoughtForm, DealThreads, FlyerMatches, PurchaseCard, PurchaseInfo } from "../components/Purchase";
+import { BoughtForm, DealThreads, FlyerMatches, Forecast, PurchaseCard, PurchaseInfo } from "../components/Purchase";
 
 interface Series {
   source_id: number;
@@ -326,6 +326,7 @@ export default function ItemDetail() {
           {purchases.map((p) => <PurchaseCard key={p.id} p={p} onChange={() => { loadPurchases(); load(); }} />)}
         </div>
       )}
+      <Forecast itemId={item.id} />
       <DealThreads itemId={item.id} />
       <FlyerMatches itemId={item.id} />
       <Suggestions item={item} onChange={load} />

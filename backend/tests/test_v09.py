@@ -136,3 +136,50 @@ async def test_flyer_llm_veto(client, pages, sent, monkeypatch):
     stats = await flyers.poll(db, force=True)
     db.close()
     assert stats["matches"] == 1
+
+
+def test_forecast_estimate():
+    from datetime import date
+
+    from pricewatch.services import forecast
+
+    today = date(2026, 11, 16)
+    days = [today - timedelta(days=40 - n) for n in range(40)]
+    # usual 400, dips to 360 now and then, now back up at 449
+    prices = [40000 if n % 10 else 36000 for n in range(39)] + [44900]
+    r = forecast.estimate(list(zip(days, prices, strict=True)), today)
+    assert r["chance"] == "high" and r["next_event"]["name"] == "Black Friday"
+    assert r["likely_low_cents"] == 36000 and any("above its usual" in x for x in r["reasons"])
+    flat = forecast.estimate(list(zip(days, [30000] * 40, strict=True)), date(2026, 12, 2))
+    assert flat["chance"] == "low" and flat["likely_low_cents"] is None
+    assert forecast.estimate([(today, 100)], today)["chance"] is None
+
+
+def test_forecast_endpoint(client, pages):
+    item = client.post("/api/items/from-url", json={"url": "https://www.bestbuy.ca/en-ca/product/a/10000001"}).json()
+    r = client.get(f"/api/items/{item['id']}/forecast").json()
+    assert r["chance"] is None and "Needs at least" in r["reasons"][0]
+
+
+def test_weekly_report(client, pages, sent, monkeypatch):
+    from pricewatch.db import session_scope
+    from pricewatch.services import events, llm_match, weekly
+
+    client.patch("/api/settings", json={"notify_urls": ["ntfys://ntfy.sh/me"]})
+    item = client.post("/api/items/from-url", json={"url": "https://www.bestbuy.ca/en-ca/product/a/10000001"}).json()
+    client.patch(f"/api/items/{item['id']}", json={"target_price_cents": 50000})
+    sunday = datetime(2026, 11, 22, 18, 30, tzinfo=events.tz())
+    monkeypatch.setattr(events, "local_now", lambda now=None: sunday)
+    monkeypatch.setattr(llm_match, "enabled", lambda db: False)
+    db = session_scope()
+    out = weekly.maybe_send(db)
+    assert len(out) == 1 and "Buy now:" in out[0].body and item["name"] in out[0].body
+    assert weekly.maybe_send(db) == []  # once a week
+    monkeypatch.setattr(events, "local_now", lambda now=None: datetime(2026, 11, 23, 18, 30, tzinfo=events.tz()))
+    assert weekly.maybe_send(db) == []  # Mondays: nothing
+    # with Claude: the note goes on top
+    monkeypatch.setattr(weekly, "claude_summary", lambda db, text: "Buy the headphones now.")
+    from pricewatch.models import User
+    title, body = weekly.build(db, db.query(User).first())
+    assert body.startswith("Buy the headphones now.\n\nBuy now:")
+    db.close()
