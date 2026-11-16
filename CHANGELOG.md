@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.2] - 2026-11-16
+### Fixed
+- Home showed only "List not found" when it remembered a list that no longer exists (with a single list there was no list picker to change it). It now falls back to all items
+- Lists page: each list's name and a "View items" button open Home showing that list's items
+
 ## [1.0.1] - 2026-11-16
 ### Fixed
 - Updating from 0.x to 1.0 failed at "Download and verify" with "no such service: browser": the old update script still built the browser sidecar that 1.0 removed. A placeholder service (never started) lets older update scripts finish, and `docker compose up` now removes the old browser container

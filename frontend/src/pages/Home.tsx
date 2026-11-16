@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api, Item, money } from "../api";
 import Badge from "../components/Badge";
 import { useSession } from "../session";
@@ -66,14 +66,26 @@ export default function Home() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
   const [listId, setListId] = useState<string>(() => {
+    const fromLink = params.get("list");
+    if (fromLink) return fromLink;  // opened from a list on the Lists page
     try { return localStorage.getItem("pw-list") || ""; } catch { return ""; }
   });
+  useEffect(() => { if (params.get("list")) setParams({}, { replace: true }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // a remembered list that no longer exists (deleted, or you left it) must not hide everything
+  useEffect(() => {
+    if (listId && lists.length > 0 && !lists.some((l) => String(l.id) === listId)) setListId("");
+  }, [lists, listId]);
   const listName = (id: number | null) => (lists.length > 1 && !listId ? lists.find((l) => l.id === id)?.name : undefined);
 
   useEffect(() => { api<{ active: string | null }>("/api/sale-mode").then((m) => setMode(m.active)).catch(() => {}); }, []);
   useEffect(() => {
-    const load = () => api<Item[]>(`/api/items${listId ? `?list_id=${listId}` : ""}`).then(setItems).catch((e) => setError(e.message));
+    const load = () => api<Item[]>(`/api/items${listId ? `?list_id=${listId}` : ""}`).then((r) => { setItems(r); setError(""); })
+      .catch((e) => {
+        if (listId && /list not found/i.test((e as Error).message)) setListId("");  // forgotten list: show everything
+        else setError((e as Error).message);
+      });
     load();
     try { localStorage.setItem("pw-list", listId); } catch { /* storage unavailable */ }
     const t = setInterval(load, 60_000);
@@ -107,9 +119,9 @@ export default function Home() {
       {mode && <div className="rounded-lg bg-red-700 p-2 text-sm font-semibold text-white">{mode} is on: your top items are checked every 30 minutes.</div>}
 
       <div className="flex flex-wrap items-center gap-2">
-        {lists.length > 1 && (
+        {(lists.length > 1 || listId) && (
           <select className="input w-auto max-w-full" value={listId} onChange={(e) => setListId(e.target.value)} aria-label="List">
-            <option value="">All my lists</option>
+            <option value="">{lists.length > 1 ? "All my lists" : "All items"}</option>
             {lists.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         )}
