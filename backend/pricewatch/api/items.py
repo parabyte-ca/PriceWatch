@@ -371,6 +371,21 @@ def discover_status(item_id: int, db: Session = Depends(get_db), me: User = Depe
     return {"searching": searching(item_id), "provider": p.name if p else None}
 
 
+@router.get("/items/{item_id}/offers")
+def market_offers(item_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Prices across stores from the latest search, cheapest first, with whether each store is tracked."""
+    from ..models import MarketOffer
+    from ..services.matching import normalize_url
+
+    item = _load_item(db, item_id, me)
+    tracked = {normalize_url(s.url): s.status for s in item.sources}
+    rows = db.scalars(select(MarketOffer).where(MarketOffer.item_id == item.id)
+                      .order_by(MarketOffer.price_cents)).all()
+    return [{"merchant": o.merchant, "title": o.title, "price_cents": o.price_cents, "shipping_cents": o.shipping_cents,
+             "url": o.url, "store_link": o.store_link, "provider": o.provider, "confidence": o.confidence,
+             "seen_at": o.seen_at.isoformat() + "Z", "tracked": tracked.get(normalize_url(o.url))} for o in rows]
+
+
 @router.post("/items/{item_id}/discover")
 async def discover_item(item_id: int, body: DiscoverIn | None = None, db: Session = Depends(get_db),
         me: User = Depends(current_user)):

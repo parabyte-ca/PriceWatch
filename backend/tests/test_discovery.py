@@ -164,3 +164,69 @@ def test_google_only_results_open_the_store_list(client, monkeypatch):
     assert statuses["https://www.walmart.ca/en/ip/nintendo-switch-2/6000201"] in ("suggested", "confirmed")
     assert seen.count("google_immersive_product") == 1  # only the matching product's store list was opened
     assert all("token" not in c for c in body["candidates"])
+
+
+def test_prices_across_stores_snapshot_best_price_and_alert(client, db_session, monkeypatch):
+    from pricewatch.models import Alert
+    from pricewatch.services.discovery import merchant_key
+
+    rows = {"shopping_results": [
+        {"title": "Nintendo Switch 2 System", "product_link": "https://www.google.ca/shopping/product/1",
+         "source": "Walmart.ca", "extracted_price": 679.95},
+        {"title": "Nintendo Switch 2 System", "product_link": "https://www.google.ca/shopping/product/2",
+         "source": "Walmart", "extracted_price": 649.99},
+        {"title": "Nintendo Switch 2 System", "link": "https://www.bestbuy.ca/en-ca/product/switch-2/19000001",
+         "source": "Best Buy", "extracted_price": 629.99, "delivery": "Free delivery"},
+        {"title": "Nintendo Switch 2 System (Refurbished)", "link": "https://www.ebay.ca/itm/9",
+         "source": "eBay", "extracted_price": 399.99, "second_hand_condition": "refurbished"},
+    ]}
+
+    class P:
+        name = "serpapi"
+
+        async def search(self, query, client):
+            async with httpx.AsyncClient(transport=httpx.MockTransport(lambda r: httpx.Response(200, json=rows))) as c:
+                return await SerpApiProvider("k").search(query, c)
+
+    monkeypatch.setattr(discovery, "get_provider", lambda name=None: P() if name in (None, "serpapi") else None)
+    item = client.post("/api/items", json={"name": "Nintendo Switch 2 System", "target_price_cents": 64999}).json()
+    body = client.post(f"/api/items/{item['id']}/discover", json={}).json()
+    assert body["market"] == {"stores": 2, "best_cents": 62999}
+    offers = client.get(f"/api/items/{item['id']}/offers").json()
+    assert [(o["merchant"], o["price_cents"], o["store_link"]) for o in offers] == [
+        ("Best Buy", 62999, True), ("Walmart", 64999, False)]  # one per store, lowest; refurbished left out
+    assert offers[0]["tracked"] in ("suggested", "confirmed")
+    m = client.get(f"/api/items/{item['id']}").json()["summary"]["market"]
+    assert m["best"]["merchant"] == "Best Buy" and m["stores"] == 2
+    assert db_session.query(Alert).filter_by(rule_type="market_target").count() == 1
+    client.post(f"/api/items/{item['id']}/discover", json={})  # same price again: no second alert
+    assert db_session.query(Alert).filter_by(rule_type="market_target").count() == 1
+    assert merchant_key("Walmart.ca") == merchant_key("walmart") == merchant_key("Walmart Canada")
+
+
+def test_daily_refresh_is_paced_to_the_monthly_limit(client, db_session, monkeypatch):
+    from datetime import datetime
+
+    from pricewatch.models import SerpSearch
+
+    class P:
+        name = "serpapi"
+        calls = 0
+
+        async def search(self, query, client):
+            P.calls += 1
+            return []
+
+    monkeypatch.setattr(discovery, "get_provider", lambda name=None: P() if name in (None, "serpapi") else None)
+    monkeypatch.setattr(discovery, "utcnow", lambda: datetime(2026, 11, 3, 12, 0))
+    client.patch("/api/settings", json={"serp_monthly_limit": 30})
+    for n in range(3):
+        client.post("/api/items", json={"name": f"Thing {n}"})
+    for _ in range(3):  # day 3 of 30 with a limit of 30: 3 searches so far is the pace
+        db_session.add(SerpSearch(provider="serpapi", query="x", created_at=datetime(2026, 11, 2)))
+    db_session.commit()
+    import asyncio
+
+    assert asyncio.run(discovery.refresh_stale(db_session, per_run=3)) == 0 and P.calls == 0
+    client.patch("/api/settings", json={"serp_monthly_limit": 300})
+    assert asyncio.run(discovery.refresh_stale(db_session, per_run=3)) == 3
