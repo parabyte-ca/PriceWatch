@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
 import AskPanel from "./components/AskPanel";
+import { UpdateBar } from "./components/UpdateBar";
+import { isActive, readPending, type UpdateProgressInfo } from "./lib/updateProgress";
 import AddItem from "./pages/AddItem";
 import Basket from "./pages/Basket";
 import Lists from "./pages/Lists";
@@ -50,6 +52,19 @@ function Icon({ name }: { name: string }) {
 export default function App() {
   const [me, setMe] = useState<MeInfo | null>(null);
   const path = useLocation().pathname;
+  // admins: a slim bar on every page while an update runs (polled quickly only then)
+  const [upd, setUpd] = useState<{ progress: UpdateProgressInfo } | null>(null);
+  const [updOffline, setUpdOffline] = useState(false);
+  const isAdmin = me?.user?.role === "admin";
+  const updBusy = !!upd && isActive(upd.progress.state);
+  useEffect(() => {
+    if (!isAdmin) return;
+    const poll = () => api<{ progress: UpdateProgressInfo }>("/api/admin/updates").then((d) => { setUpd(d); setUpdOffline(false); })
+      .catch(() => setUpdOffline(!!readPending()));
+    poll();
+    const t = setInterval(poll, updBusy || (updOffline && readPending()) ? 3000 : 300000);
+    return () => clearInterval(t);
+  }, [isAdmin, updBusy, updOffline]);
   const [version, setVersion] = useState("");
   const [lists, setLists] = useState<ListInfo[]>([]);
   const reloadLists = useCallback(() => {
@@ -77,6 +92,7 @@ export default function App() {
   return (
     <SessionContext.Provider value={{ user: me.user || null, lists, reloadLists }}>
     <div className="mx-auto max-w-6xl px-4 pb-24 md:pb-16">
+      {isAdmin && <UpdateBar summary={upd} offline={updOffline} />}
       <header className="flex items-center justify-between gap-2 pt-4">
         <NavLink to="/" className="flex min-w-0 items-center gap-2 text-lg font-bold">
           <img src="/icon.svg" alt="" className="h-7 w-7 shrink-0" /> <span className="truncate">PriceWatch</span>

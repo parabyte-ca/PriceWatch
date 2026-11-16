@@ -61,9 +61,9 @@ export default function SystemPage() {
 
   return (
     <div className="space-y-4">
+      {user?.role === "admin" && <Updates />}
       {user?.role === "admin" && <Readiness />}
       {user?.role === "admin" && <ClaudeSetup />}
-      {user?.role === "admin" && <Updates />}
       {user?.role === "admin" && <Diagnose />}
       <Perks admin={user?.role === "admin"} />
       <div className="card grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">

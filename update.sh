@@ -21,7 +21,8 @@ STATE=.state
 LOG=logs/update.log
 mkdir -p "$STATE" logs
 exec > >(tee -a "$LOG") 2>&1
-log() { echo "[update $(date '+%F %T')] $*"; }
+# UTC timestamps: the in-app progress view reads these lines to show which step is running
+log() { echo "[update $(date -u +%FT%TZ)] $*"; }
 die() { log "ERROR: $*"; exit 1; }
 
 [ -f .env ] || die ".env not found; run setup.sh first"
@@ -41,6 +42,7 @@ while [ $# -gt 0 ]; do
 done
 
 wait_healthy() {
+  log "waiting for the health check"
   for _ in $(seq 1 60); do
     curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1 && return 0
     sleep 2
@@ -53,8 +55,10 @@ deploy_current_checkout() {
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "VERSION is not X.Y.Z: $version"
   set_env PRICEWATCH_VERSION "$version"
   local revision; revision=$(git rev-parse HEAD)
+  log "downloading v$version"
   if [ -z "$REF" ] && docker pull -q "$IMAGE:$version" >/dev/null 2>&1; then
     if [ "${PRICEWATCH_SKIP_VERIFY:-false}" != "true" ] && command -v cosign >/dev/null; then
+      log "verifying the signature"
       cosign verify "$IMAGE:$version" \
         --certificate-identity-regexp "(?i)^https://github.com/parabyte-ca/pricewatch/.github/workflows/release.yml@refs/heads/main$" \
         --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null || die "signature check failed for $IMAGE:$version"
@@ -68,6 +72,7 @@ deploy_current_checkout() {
     set_env PRICEWATCH_IMAGE "parabyte-ca/pricewatch"
   fi
   docker compose build browser
+  log "restarting containers"
   docker compose up -d
 }
 

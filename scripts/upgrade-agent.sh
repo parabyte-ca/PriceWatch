@@ -135,16 +135,26 @@ run_once() {
     git rev-parse -q --verify "refs/tags/v$version" >/dev/null || {
       write_json status.json "state=rejected" "message=No release v$version" "finished_at=$(date -u +%FT%TZ)"; exit 0; }
   fi
-  local started; started=$(date -u +%FT%TZ)
-  write_json status.json "state=running" "action=$action" "version=$version" "requested_by=$who" "started_at=$started"
+  local started from; started=$(date -u +%FT%TZ); from=$(current_version)
+  write_json status.json "state=running" "action=$action" "version=$version" "requested_by=$who" "started_at=$started" \
+    "from_version=$from"
   : > "$STATUS/upgrade.log"; chmod 644 "$STATUS/upgrade.log"
   local args=(--version "$version")
   [ "$action" = "rollback" ] && args=(--rollback)
   local code=0
   ./update.sh "${args[@]}" >> "$STATUS/upgrade.log" 2>&1 || code=$?
   local state=succeeded; [ "$code" = 0 ] || state=failed
+  local rolled=no; grep -q "rolling back automatically" "$STATUS/upgrade.log" && rolled=yes
+  local finished; finished=$(date -u +%FT%TZ)
   write_json status.json "state=$state" "action=$action" "version=$version" "requested_by=$who" \
-    "started_at=$started" "finished_at=$(date -u +%FT%TZ)" "exit_code=$code" "current=$(current_version)"
+    "started_at=$started" "finished_at=$finished" "exit_code=$code" "current=$(current_version)" \
+    "from_version=$from" "to_version=$(current_version)" "rolled_back=$rolled"
+  # one line per run, for the history list and the time estimate (last 50 kept)
+  python3 -I -c 'import json,sys; print(json.dumps(dict(a.split("=",1) for a in sys.argv[1:])))' \
+    "action=$action" "version=$version" "state=$state" "from_version=$from" "to_version=$(current_version)" \
+    "started_at=$started" "finished_at=$finished" "requested_by=$who" "rolled_back=$rolled" >> "$STATUS/history.jsonl"
+  tail -n 50 "$STATUS/history.jsonl" > "$STATUS/.history.tmp" && mv -f "$STATUS/.history.tmp" "$STATUS/history.jsonl"
+  chmod 644 "$STATUS/history.jsonl"
   refresh_available force
 }
 

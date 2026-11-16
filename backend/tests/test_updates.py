@@ -59,3 +59,32 @@ def test_not_mounted(client, monkeypatch, tmp_path):
     r = client.get("/api/admin/updates").json()
     assert r["agent_installed"] is False
     assert client.post("/api/admin/updates", json={"action": "check"}).status_code == 409
+
+
+def test_progress_steps_estimate_and_history(client, folders):
+    inbox, status = folders
+    assert client.get("/api/admin/updates").json()["progress"]["state"] == "idle"
+    # a past run sets the estimate (3 min 30 s + 30 s pick-up)
+    (status / "history.jsonl").write_text(json.dumps({"action": "update", "state": "succeeded", "version": "0.13.0",
+                                                      "started_at": "2026-11-15T10:00:00Z",
+                                                      "finished_at": "2026-11-15T10:03:30Z"}) + "\n")
+    (status / "status.json").write_text(json.dumps({"state": "running", "action": "update", "version": "0.14.0",
+                                                     "started_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")}))
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    (status / "upgrade.log").write_text(
+        f"[update 2020-01-01T00:00:00Z] restarting containers\n"  # an older run: ignored
+        f"[update {now}] current: v0.13.0, target: v0.14.0\n[update {now}] backing up the database\n"
+        f"[update {now}] downloading v0.14.0\n[update {now}] verifying the signature\n")
+    p = client.get("/api/admin/updates").json()["progress"]
+    assert p["state"] == "running" and p["estimate_s"] == 240.0
+    reached = [s["key"] for s in p["stages"] if s["reached"]]
+    assert reached == ["requested", "started", "backup", "download"]
+    assert p["last_line"] == "verifying the signature"
+    (status / "status.json").write_text(json.dumps({"state": "failed", "action": "update", "version": "0.14.0",
+                                                    "started_at": now, "finished_at": now, "rolled_back": "yes"}))
+    with (status / "upgrade.log").open("a") as f:
+        f.write(f"[update {now}] restarting containers\n[update {now}] waiting for the health check\n"
+                f"[update {now}] health check failed; rolling back automatically\n")
+    p = client.get("/api/admin/updates").json()["progress"]
+    assert p["state"] == "failed" and p["failed_at"] == "health" and p["rolled_back"] is True
+    assert client.get("/api/admin/updates").json()["history"][0]["version"] == "0.13.0"

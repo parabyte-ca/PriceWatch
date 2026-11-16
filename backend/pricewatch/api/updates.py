@@ -7,6 +7,7 @@ runs update.sh (backup, signature check, health check, automatic rollback) and r
 import json
 import os
 import re
+import statistics
 import tempfile
 from datetime import UTC, datetime
 
@@ -20,6 +21,132 @@ from ..models import User
 
 router = APIRouter(prefix="/api/admin/updates", tags=["updates"])
 VERSION_RE = re.compile(r"^\d{1,3}\.\d{1,3}\.\d{1,3}$")
+
+# Steps of an update, and the update.sh log lines that show each one was reached (same idea as NetWatch).
+UPDATE_STAGES = (
+    ("requested", "Requested", None),
+    ("started", "Agent started", None),
+    ("backup", "Backup", re.compile(r"^(current: |backing up the database)")),
+    ("download", "Download and verify", re.compile(r"^(downloading v|verifying the signature|building image locally)")),
+    ("restart", "Restart", re.compile(r"^restarting containers")),
+    ("health", "Health check", re.compile(r"^waiting for the health check")),
+    ("done", "Done", None),
+)
+ROLLBACK_STAGES = (
+    ("requested", "Requested", None),
+    ("started", "Agent started", None),
+    ("restore", "Restore", re.compile(r"^(rolling back to|restoring database)")),
+    ("restart", "Restart", re.compile(r"^restarting containers")),
+    ("health", "Health check", re.compile(r"^waiting for the health check")),
+    ("done", "Done", None),
+)
+LOG_LINE = re.compile(r"^\[update (\S+(?: \d\d:\d\d:\d\d)?)\] (.*)$")
+REQUEST_STALE_S, RUNNING_STALE_S = 3600, 1800
+
+
+def _ts(value) -> float | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return (dt if dt.tzinfo else dt.replace(tzinfo=UTC)).timestamp()
+
+
+def _history(limit: int = 20) -> list[dict]:
+    path = get_settings().upgrade_status_dir / "history.jsonl"
+    try:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 262_144:
+            return []
+        lines = path.read_text().splitlines()
+    except OSError:
+        return []
+    out = []
+    for line in reversed(lines):
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict):
+            out.append(item)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def estimate(action: str) -> float | None:
+    """Median of the last 5 successful runs of this kind, plus half a minute for the agent to pick it up."""
+    took = []
+    for h in _history(50):
+        if h.get("state") != "succeeded" or (h.get("action") or "update") != action:
+            continue
+        a, b = _ts(h.get("started_at")), _ts(h.get("finished_at"))
+        if a and b and b > a:
+            took.append(b - a)
+        if len(took) >= 5:
+            break
+    return round(statistics.median(took) + 30, 1) if took else None
+
+
+def progress(now: float | None = None) -> dict:
+    """idle | requested | running | succeeded | failed, with the steps reached, the latest log line and an estimate."""
+    import time
+
+    now = now or time.time()
+    inbox = get_settings().upgrade_dir / "request.json"
+    req = None
+    try:
+        if inbox.is_file() and not inbox.is_symlink() and inbox.stat().st_size < 65536:
+            req = json.loads(inbox.read_text())
+    except (OSError, ValueError):
+        req = None
+    st = _read_json("status.json") or {}
+    if req is not None:
+        if now - (_ts(req.get("requested_at")) or now) > REQUEST_STALE_S:
+            out = {"state": "failed", "reason": "the upgrade agent never picked up the request", "request": req}
+        else:
+            out = {"state": "requested", "request": req}
+    elif st.get("state") == "running":
+        out = {"state": "running", "status": st}
+        if now - (_ts(st.get("started_at")) or now) > RUNNING_STALE_S:
+            out = {"state": "failed", "reason": "the update stalled", "status": st}
+    elif st.get("state") in ("succeeded", "failed"):
+        out = {"state": st["state"], "status": st}
+    else:
+        return {"state": "idle", "status": st or None}
+    action = (req or {}).get("action") or st.get("action") or "update"
+    table = ROLLBACK_STAGES if action == "rollback" else UPDATE_STAGES
+    reached: dict[str, float | None] = {"requested": _ts((req or {}).get("requested_at"))}
+    last_line = None
+    if out["state"] != "requested" and st:
+        started = _ts(st.get("started_at"))
+        reached["started"] = started
+        for line in _log_tail(400):
+            m = LOG_LINE.match(line.strip())
+            if not m:
+                continue
+            ts, text = _ts(m[1].replace(" ", "T")), m[2].strip()
+            if started and ts and ts < started - 5:
+                continue  # an earlier run's lines
+            last_line = text
+            for key, _label, pattern in table:
+                if pattern is not None and key not in reached and pattern.match(text):
+                    reached[key] = ts
+        if out["state"] == "succeeded":
+            reached["done"] = _ts(st.get("finished_at"))
+    keys = [k for k, _, _ in table]
+    furthest = max((keys.index(k) for k in reached if k in keys), default=0)
+    out.update({
+        "action": action,
+        "stages": [{"key": k, "label": label, "at": reached.get(k), "reached": i <= furthest}
+                   for i, (k, label, _) in enumerate(table)],
+        "failed_at": keys[furthest] if out["state"] == "failed" else None,
+        "rolled_back": st.get("rolled_back") == "yes",
+        "last_line": (last_line or "")[:160] or None,
+        "estimate_s": estimate(action),
+    })
+    return out
 
 
 def _read_json(name: str) -> dict | None:
@@ -81,6 +208,8 @@ def update_status(_: User = Depends(require_admin)):
         "status": _read_json("status.json"),
         "pending": (s.upgrade_dir / "request.json").exists(),
         "log": _log_tail(),
+        "progress": progress(),
+        "history": _history(10),
         "inbox_writable": os.access(s.upgrade_dir, os.W_OK) if s.upgrade_dir.is_dir() else False,
     }
 
