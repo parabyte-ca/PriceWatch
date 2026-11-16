@@ -10,12 +10,13 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..fetch.http import domain_of
 from ..models import Item, MarketOffer, SerpSearch, SourceLink
 from ..serp import ProviderError, SerpProvider, get_provider
 from ..timeutil import utcnow
 from . import llm_match, settings_store
 from .matching import Candidate, ItemSpec, match, normalize_url
-from .retailers import get_or_create_retailer
+from .retailers import domain_for_merchant, get_or_create_retailer, merchant_kind
 
 log = logging.getLogger(__name__)
 
@@ -108,24 +109,39 @@ async def run_search(db: Session, item: Item | None, provider: SerpProvider, que
 
 async def discover(db: Session, item: Item, *, provider_name: str | None = None, force: bool = False,
                    client: httpx.AsyncClient | None = None) -> dict:
+    """Search for the item at every store, track each known Canadian store and record the prices."""
     provider = get_provider(provider_name)
     if provider is None:
-        raise DiscoveryError("No search provider configured. Set SERPAPI_KEY or BRIGHTDATA_API_KEY in .env")
+        raise DiscoveryError("No search provider configured. Set SERPAPI_KEY in .env or add a Claude key")
+    r = await compare(db, item, provider, force=force, client=client)
+    market = save_offers(db, item, r["offers"], query=r["query"])
+    db.commit()
+    log.info("discovery", extra={"item_id": item.id, "provider": provider.name, "cached": r["cached"],
+                                 "candidates": len(r["candidates"]), "added": market["added"]})
+    return {"provider": provider.name, "query": r["query"], "cached": r["cached"], "added": market["added"],
+            "usage": month_usage(db, provider.name), "limit": int(settings_store.get(db, "serp_monthly_limit") or 0),
+            "candidates": r["candidates"], "notes": r["notes"], "market": market}
+
+
+async def compare(db: Session, item: Item, provider, *, force: bool = False,
+                  client: httpx.AsyncClient | None = None) -> dict:
+    """Search and match, without saving anything: the candidates, the matching offers and notes.
+
+    ``item`` may be unsaved (the Find page compares before anything is watched); searches are cached for a week, so
+    watching right after a comparison costs no second search.
+    """
     cfg = settings_store.get_all(db)
     query = build_query(item)
-    candidates, cached = await run_search(db, item, provider, query, force, client)
+    candidates, cached = await run_search(db, item if item.id else None, provider, query, force, client)
 
     spec = ItemSpec.from_item(item)
-    existing = {normalize_url(s.url): s for s in item.sources}
     threshold = float(cfg["match_threshold"])
     use_llm = llm_match.enabled(db)
     out, seen = [], set()
-    added = 0
     notes: list[str] = []
     offers: list[dict] = []
 
     async def consider(cand: Candidate, via: str) -> dict | None:
-        nonlocal added
         url = normalize_url(cand.url)
         if url in seen:
             return None
@@ -137,42 +153,26 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
             if ai and not ai["same_product"]:
                 result.accepted = False
                 result.reasons = [*result.reasons, f"Claude: not the same product ({ai['reason']})"]
-        if result.accepted and cand.price_cents and (cand.condition in (None, "new")):
-            offers.append({"merchant": cand.merchant or (urlsplit(url).hostname or ""), "title": cand.title,
-                           "price_cents": cand.price_cents, "shipping_cents": cand.shipping_cents, "url": url,
-                           "store_link": _is_merchant_url(url), "provider": via,
-                           "confidence": result.confidence})
-        row = {"title": cand.title, "url": url, "merchant": cand.merchant, "price_cents": cand.price_cents,
+        store_link = _is_merchant_url(url)
+        merchant = cand.merchant or (urlsplit(url).hostname or "")
+        domain = domain_for_merchant(merchant)
+        if domain is None and store_link:
+            host = domain_of(url)
+            domain = host if (host.endswith(".ca") or domain_for_merchant(host)) else None
+            domain = domain_for_merchant(host) or domain
+        kind = merchant_kind(merchant) if domain or store_link else "other"
+        if kind == "store" and domain is None:
+            kind = "other"  # not a store PriceWatch knows sells in Canada
+        row = {"title": cand.title, "url": url, "merchant": merchant, "price_cents": cand.price_cents,
                "confidence": result.confidence, "method": result.method, "accepted": result.accepted,
                "reasons": result.reasons, "exclusions": result.exclusions, "ai": ai, "via": via,
-               "token": (cand.extra or {}).get("immersive_token")}
-        if not _is_merchant_url(url):
-            row["status"] = "no merchant link"
-        elif url in existing:
-            row["status"] = f"already {existing[url].status}"
-        elif not result.accepted:
-            row["status"] = "excluded" if result.exclusions else "low match"
-        else:
-            retailer = get_or_create_retailer(db, url)
-            # a matching barcode or model number (same brand, not an accessory) is near certain: track it at once
-            auto = (cfg["auto_confirm_gtin"] and result.method == "gtin") or (
-                cfg.get("auto_confirm_strong", True) and result.method in ("gtin", "mpn", "model")
-                and result.confidence >= 0.9)
-            src = SourceLink(
-                item_id=item.id, retailer_id=retailer.id, url=url, title=cand.title[:500],
-                status="confirmed" if auto else "suggested", match_confidence=result.confidence,
-                match_method=result.method, discovered_via=via,
-                match_reasons={"reasons": result.reasons, "exclusions": result.exclusions,
-                               "serp_price_cents": cand.price_cents, "merchant": cand.merchant,
-                               "query": query, "ai": ai},
-            )
-            if auto:
-                src.next_check_at = utcnow()  # first real price soon
-            db.add(src)
-            db.flush()
-            existing[url] = src
-            added += 1
-            row["status"] = "confirmed" if auto else "suggested"
+               "token": (cand.extra or {}).get("immersive_token"), "kind": kind, "domain": domain,
+               "status": ("matched" if result.accepted else "excluded" if result.exclusions else "low match")}
+        if result.accepted and cand.price_cents and cand.condition in (None, "new"):
+            offers.append({"merchant": merchant, "title": cand.title, "price_cents": cand.price_cents,
+                           "shipping_cents": cand.shipping_cents, "url": url, "store_link": store_link,
+                           "provider": via, "confidence": result.confidence, "domain": domain, "kind": kind,
+                           "method": result.method, "reasons": result.reasons, "ai": ai})
         out.append(row)
         return row
 
@@ -181,7 +181,7 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
 
     # Google Shopping hides store links behind its own product pages. Open the best matching products' store
     # lists (one search each, cached) so the stores' own product pages can be tracked.
-    hidden = [r for r in out if r["status"] == "no merchant link" and r["accepted"] and r.get("token")]
+    hidden = [r for r in out if not _is_merchant_url(r["url"]) and r["accepted"] and r.get("token")]
     hidden.sort(key=lambda r: -r["confidence"])
     if hidden and hasattr(provider, "expand"):
         for row in hidden[:EXPAND_MAX]:
@@ -197,7 +197,7 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
                 await consider(cand, provider.name)
 
     # still nothing with a real store link: ask Claude's web search, which returns the stores' own pages
-    linked = [r for r in out if r["status"] != "no merchant link" and r["accepted"]]
+    linked = [r for r in out if _is_merchant_url(r["url"]) and r["accepted"]]
     if not linked and provider.name != "claude":
         claude_web = get_provider("claude")
         if claude_web is not None and claude_web.name == "claude":
@@ -210,14 +210,21 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
 
     for r in out:
         r.pop("token", None)
-    market = save_offers(db, item, offers)
-    db.commit()
     out.sort(key=lambda r: (not r["accepted"], -r["confidence"]))
-    log.info("discovery", extra={"item_id": item.id, "provider": provider.name, "cached": cached,
-                                 "candidates": len(out), "added": added})
-    return {"provider": provider.name, "query": query, "cached": cached, "added": added,
-            "usage": month_usage(db, provider.name), "limit": int(cfg["serp_monthly_limit"] or 0),
-            "candidates": out, "notes": notes, "market": market}
+    return {"query": query, "cached": cached, "candidates": out, "offers": offers, "notes": notes}
+
+
+def best_per_store(offers: list[dict]) -> list[dict]:
+    """The lowest offer per store (shipping included), cheapest first."""
+    best: dict[str, dict] = {}
+    for o in offers:
+        k = _offer_key(o)
+        cur = best.get(k)
+        total = o["price_cents"] + (o["shipping_cents"] or 0)
+        if cur is None or total < cur["_total"] or (total == cur["_total"] and o["store_link"]
+                                                      and not cur["store_link"]):
+            best[k] = {**o, "_total": total}
+    return sorted(best.values(), key=lambda o: o["_total"])
 
 
 def merchant_key(name: str) -> str:
@@ -229,37 +236,82 @@ def merchant_key(name: str) -> str:
     return n or "?"
 
 
-def save_offers(db: Session, item: Item, offers: list[dict]) -> dict:
-    """Replace the item's snapshot with the lowest price per store, then alert when the best one hits the target."""
-    best_by_store: dict[str, dict] = {}
-    for o in offers:
-        k = merchant_key(o["merchant"])
-        cur = best_by_store.get(k)
-        total = o["price_cents"] + (o["shipping_cents"] or 0)
-        if cur is None or total < cur["_total"] or (total == cur["_total"] and o["store_link"]
-                                                      and not cur["store_link"]):
-            best_by_store[k] = {**o, "_total": total}
+def _offer_key(o: dict) -> str:
+    return o["domain"] or merchant_key(o["merchant"])
+
+
+def save_offers(db: Session, item: Item, offers: list[dict], *, query: str = "") -> dict:
+    """Keep the lowest price per store as the item's comparison, and track every known Canadian store.
+
+    Each recognised store becomes a tracked store for the item (one per store), and the price seen in the search is
+    recorded as its price history, so history, alerts and the buy advice cover every store, not just one link.
+    """
+    ranked = best_per_store(offers)
     db.query(MarketOffer).filter(MarketOffer.item_id == item.id).delete()
     now = utcnow()
     rows = []
-    for o in sorted(best_by_store.values(), key=lambda o: o["_total"]):
+    for o in ranked:
         row = MarketOffer(item_id=item.id, merchant=o["merchant"][:120], title=(o["title"] or "")[:500],
                           price_cents=o["price_cents"], shipping_cents=o["shipping_cents"], url=o["url"][:1000],
                           store_link=o["store_link"], provider=o["provider"][:30], confidence=o["confidence"],
-                          seen_at=now)
+                          seen_at=now, domain=o["domain"], kind=o["kind"])
         db.add(row)
         rows.append(row)
+    db.flush()
+    added = 0
+    for o in ranked:
+        if o["kind"] == "store" and o["domain"]:
+            added += _sync_store(db, item, o, query)
     db.commit()
-    if rows and item.target_price_cents and rows[0].price_cents <= item.target_price_cents:
-        from . import alerts
+    stores = [r for r in rows if r.kind == "store"]
+    return {"stores": len(stores), "best_cents": stores[0].price_cents if stores else None, "added": added,
+            "others": len(rows) - len(stores)}
 
-        b = rows[0]
-        alerts.raise_alert(db, item=item, rule="market_target", key=f"market:{item.id}:{b.price_cents}",
-                           title=f"{item.name}: {alerts.money(b.price_cents)} at {b.merchant}",
-                           body=f"Found online at {b.merchant} for {alerts.money(b.price_cents)} (your target "
-                                f"{alerts.money(item.target_price_cents)}). Seen in search results; check the "
-                                "store's page before buying.", url=b.url)
-    return {"stores": len(rows), "best_cents": rows[0].price_cents if rows else None}
+
+def _sync_store(db: Session, item: Item, o: dict, query: str) -> int:
+    """Create or update the item's tracked store for this offer and record the price. Returns 1 when new."""
+    from ..models import Retailer
+    from .checker import CONFIDENCE, record_observation, run_alerts
+
+    domain = o["domain"]
+    retailer = db.scalar(select(Retailer).where(Retailer.domain == domain))
+    if retailer is None:
+        retailer = get_or_create_retailer(db, o["url"], domain=domain)
+    src = next((s for s in item.sources if s.retailer_id == retailer.id), None)
+    url = normalize_url(o["url"])
+    created = 0
+    if src is None:
+        if any(normalize_url(s.url) == url for s in item.sources):
+            return 0
+        src = SourceLink(item_id=item.id, retailer_id=retailer.id, url=url, title=(o["title"] or "")[:500],
+                         status="confirmed", match_confidence=o["confidence"], match_method=o["method"],
+                         discovered_via=o["provider"],
+                         fetch_mode=None if o["store_link"] and retailer.fetch_mode != "search" else "search",
+                         match_reasons={"reasons": o["reasons"], "serp_price_cents": o["price_cents"],
+                                        "merchant": o["merchant"], "query": query, "ai": o["ai"]})
+        db.add(src)
+        db.flush()
+        if src not in item.sources:
+            item.sources.append(src)
+        created = 1
+    elif src.status == "rejected":
+        return 0  # hidden by the household
+    elif o["store_link"] and not _is_merchant_url(src.url) and not any(
+            normalize_url(s.url) == url for s in item.sources):
+        src.url = url  # found the store's own page: use it from now on
+        if retailer.fetch_mode != "search":
+            src.fetch_mode = None
+    # the search price counts unless the store page itself was read in the last day (it is more exact)
+    fresh_direct = (src.fetch_mode != "search" and src.last_success_at is not None
+                    and src.last_success_at > utcnow() - timedelta(hours=24) and not created)
+    if not fresh_direct:
+        _, previous = record_observation(
+            db, src, price_cents=o["price_cents"], was_price_cents=None, shipping_cents=o["shipping_cents"],
+            in_stock=True, seller=o["merchant"][:100], method="search", parse_confidence=CONFIDENCE["search"])
+        src.last_error = None
+        db.flush()
+        run_alerts(db, src, previous, None)
+    return created
 
 
 def market_summary(db: Session, item_ids: list[int]) -> dict[int, dict]:
@@ -270,6 +322,8 @@ def market_summary(db: Session, item_ids: list[int]) -> dict[int, dict]:
     for o in db.scalars(select(MarketOffer).where(MarketOffer.item_id.in_(item_ids))
                         .order_by(MarketOffer.item_id, MarketOffer.price_cents)).all():
         m = out.setdefault(o.item_id, {"best": None, "stores": 0, "seen_at": o.seen_at})
+        if o.kind != "store":
+            continue
         m["stores"] += 1
         if m["best"] is None:
             m["best"] = {"merchant": o.merchant, "price_cents": o.price_cents, "shipping_cents": o.shipping_cents,
@@ -371,11 +425,27 @@ async def refresh_stale(db: Session, per_run: int = 5, days: float = 1) -> int:
         return 0
     if not _within_budget(db, provider):
         return 0
+    cfg = settings_store.get_all(db)
+    from . import events
+
+    if events.sale_mode(cfg):
+        days = min(days, 0.5)  # sale events move fast: twice a day
     since = utcnow() - timedelta(days=days)
     recent = set(db.scalars(select(SerpSearch.item_id).where(SerpSearch.created_at >= since,
                                                              SerpSearch.item_id.is_not(None))).all())
-    items = [i for i in db.scalars(select(Item).where(Item.active.is_(True)).order_by(Item.priority, Item.id)).all()
-             if i.id not in recent][:per_run]
+    due = [i for i in db.scalars(select(Item).where(Item.active.is_(True))).all() if i.id not in recent]
+    from .summary import summarize_items
+
+    summaries = summarize_items(db, due) if due else {}
+
+    def urgency(i: Item) -> tuple:
+        """Most useful first: hot items, items close to their target, then priority and the oldest search."""
+        s = summaries.get(i.id) or {}
+        best, target = s.get("best_price_cents"), i.target_price_cents
+        near = bool(best and target and best <= target * 1.1)
+        return (not i.hot, not near, i.priority, i.id)
+
+    items = sorted(due, key=urgency)[:per_run]
     done = 0
     for item in items:
         if not _within_budget(db, provider):

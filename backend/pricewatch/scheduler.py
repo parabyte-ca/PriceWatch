@@ -9,7 +9,7 @@ from sqlalchemy import or_, select
 
 from .db import session_scope
 from .models import Item, Purchase, SourceLink
-from .services import alerts, changedetection, events, protection, runtime, settings_store
+from .services import alerts, events, protection, runtime, settings_store
 from .services.checker import check_source
 from .timeutil import utcnow
 
@@ -31,7 +31,7 @@ def due_source_ids(limit: int = 100) -> list[int]:
                     select(Purchase.item_id).where(Purchase.status.in_(["watching", "claimable"])))),
                 SourceLink.status == "confirmed",
                 ~SourceLink.url.startswith("manual://"),
-                or_(SourceLink.fetch_mode.is_(None), SourceLink.fetch_mode.notin_(["manual", "changedetection"])),
+                or_(SourceLink.fetch_mode.is_(None), SourceLink.fetch_mode.notin_(["manual", "search"])),
                 or_(SourceLink.next_check_at.is_(None), SourceLink.next_check_at <= now),
             )
             .order_by(SourceLink.next_check_at.is_(None).desc(), SourceLink.next_check_at)
@@ -189,16 +189,6 @@ async def flyers() -> None:
         db.close()
 
 
-async def changedetection_sync() -> None:
-    if not changedetection.configured():
-        return
-    db = session_scope()
-    try:
-        await asyncio.to_thread(changedetection.sync, db)
-    finally:
-        db.close()
-
-
 def start() -> AsyncIOScheduler:
     global _scheduler
     _scheduler = AsyncIOScheduler(timezone="UTC")
@@ -206,8 +196,6 @@ def start() -> AsyncIOScheduler:
                        next_run_time=utcnow_aware())
     _scheduler.add_job(housekeeping, "interval", minutes=5, id="housekeeping", max_instances=1, coalesce=True)
     _scheduler.add_job(nightly_backup, "interval", minutes=10, id="backup", max_instances=1, coalesce=True)
-    _scheduler.add_job(changedetection_sync, "interval", minutes=15, id="changedetection", max_instances=1,
-                       coalesce=True)
     _scheduler.add_job(deal_feed, "interval", minutes=15, id="deal_feed", max_instances=1, coalesce=True)
     _scheduler.add_job(flyers, "interval", hours=1, id="flyers", max_instances=1, coalesce=True)
     _scheduler.add_job(rediscover, "interval", hours=2, id="rediscover", max_instances=1, coalesce=True)

@@ -148,16 +148,6 @@ def test_deliver_counts_push_as_sent(client, monkeypatch):
     db.close()
 
 
-def test_diagnose_reports_and_saves_fixture(client, pages):
-    r = client.post("/api/admin/diagnose", json={"url": "https://www.memoryexpress.com/p/1", "save_fixture": True}).json()
-    assert r["robots_allowed"] is True and r["http"]["outcome"] == "ok"
-    assert r["http"]["parsed"]["price_cents"] == 44999 and r["verdict"] == "ok"
-    assert r["fixture"].startswith("data/fixtures/memoryexpress.com-")
-    pages["/p/2"] = "<html><body>Just a moment... checking your browser</body></html>"
-    r = client.post("/api/admin/diagnose", json={"url": "https://www.memoryexpress.com/p/2"}).json()
-    assert r["verdict"] != "ok"
-
-
 async def test_flyers_opt_in_and_matching(client, pages, sent):
     from pricewatch.db import session_scope
     from pricewatch.services import flyers
@@ -185,60 +175,6 @@ async def test_flyers_opt_in_and_matching(client, pages, sent):
     assert (await flyers.poll(db, force=True))["matches"] == 0  # no duplicates
     db.close()
     assert flyers.valid_postal("90210") is None
-
-
-def test_best_buy_json_adapter(client, pages):
-    from pricewatch.adapters import bestbuy
-
-    url = "https://www.bestbuy.ca/en-ca/product/sony-wh-1000xm6/18934721"
-    assert bestbuy.api_url(url) == "https://www.bestbuy.ca/api/v2/json/product/18934721?lang=en-CA"
-    pages["/api/v2/json/product/18934721"] = {"sku": "18934721", "name": "Sony WH-1000XM6", "regularPrice": 549.99,
-                                              "salePrice": 429.99, "brandName": "Sony", "modelNumber": "WH1000XM6/B",
-                                              "availability": {"isAvailableOnline": True}}
-    item = client.post("/api/items/from-url", json={"url": url}).json()
-    src = item["sources"][0]
-    client.patch(f"/api/sources/{src['id']}", json={"fetch_mode": "bestbuy_api"})
-    r = client.post(f"/api/sources/{src['id']}/check").json()
-    assert r["outcome"] == "ok"
-    s = client.get(f"/api/items/{item['id']}").json()["sources"][0]
-    assert s["last_price_cents"] == 42999
-    # API gone: falls back to the product page
-    pages["/api/v2/json/product/18934721"] = "<html>nope</html>"
-    assert client.post(f"/api/sources/{src['id']}/check").json()["outcome"] == "ok"
-    s = client.get(f"/api/items/{item['id']}").json()["sources"][0]
-    assert s["last_price_cents"] == 44999
-    assert bestbuy.parse_json("not json", url) is None
-
-
-async def test_proof_screenshot_added(client, pages, monkeypatch):
-    from pricewatch.config import get_settings
-    from pricewatch.db import session_scope
-    from pricewatch.fetch import browser
-    from pricewatch.models import ProofCapture, Purchase, SourceLink
-    from pricewatch.services import protection
-
-    item = client.post("/api/items/from-url", json={"url": "https://www.bestbuy.ca/en-ca/product/b/10000002"}).json()
-    src_id = item["sources"][0]["id"]
-    client.post(f"/api/items/{item['id']}/purchases", json={"source_id": src_id, "price_cents": 50000})
-    db = session_scope()
-    src = db.get(SourceLink, src_id)
-    p = db.query(Purchase).one()
-    obs = src.item and db.query(__import__("pricewatch.models", fromlist=["Observation"]).Observation).first()
-    protection.capture(db, p, src, obs, "<html>proof</html>")
-    db.commit()
-    monkeypatch.setattr(get_settings(), "browser_enabled", True)
-
-    async def shot(url, ws, timeout, ua):
-        return b"\x89PNG fake"
-
-    monkeypatch.setattr(browser, "screenshot", shot)
-    assert await protection.add_screenshots(db, src) == 1
-    cap = db.query(ProofCapture).one()
-    folder = get_settings().data_dir / cap.path
-    assert cap.screenshot and (folder / "screenshot.png").read_bytes() == b"\x89PNG fake"
-    assert "screenshot_sha256" in json.loads((folder / "proof.json").read_text())
-    assert await protection.add_screenshots(db, src) == 0
-    db.close()
 
 
 async def test_flyer_match_goes_to_summary_when_flyer_alerts_off(client, pages, sent):

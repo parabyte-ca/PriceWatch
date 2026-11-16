@@ -1,6 +1,6 @@
 [project]
 name = "pricewatch"
-version = "0.16.0"
+version = "1.0.0"
 description = "Self-hosted Canadian wishlist price tracker"
 requires-python = ">=3.12"
 dependencies = [
@@ -19,7 +19,6 @@ dependencies = [
   "itsdangerous==2.2.0",
   "python-multipart==0.0.33",
   "rapidfuzz==3.14.6",
-  "playwright==1.65.1",
   "tzdata==2026.6",
   "pywebpush==2.5.0",
   "anthropic==2.3.0",

@@ -113,41 +113,6 @@ def test_basket_tip_and_missing(client):
     db.close()
 
 
-def test_readiness_and_load_plan(client, monkeypatch):
-    from pricewatch.db import session_scope
-    from pricewatch.models import Item
-
-    db = session_scope()
-    lst = client.get("/api/lists").json()[0]["id"]
-    for n in range(30):
-        it = Item(name=f"Hot {n}", list_id=lst, hot=True, priority=1)
-        db.add(it)
-        db.flush()
-        _source(db, it, "bestbuy.ca", 1000)
-    db.add(Item(name="Hot with no store", list_id=lst, hot=True))
-    db.commit()
-    db.close()
-    r = client.get("/api/admin/readiness").json()
-    keys = {c["key"]: c for c in r["checks"]}
-    assert keys["hot_sources"]["status"] == "warn" and "Hot with no store" in keys["hot_sources"]["detail"]
-    assert keys["hot_count"]["status"] == "warn"
-    assert keys["notify"]["status"] == "warn"
-    bb = next(p for p in r["load"] if p["domain"] == "bestbuy.ca")
-    # 25 items every 30 min + 5 every 2 h = 52.5 requests/h (tests run with no per-domain spacing)
-    assert bb["requests_per_hour"] == 52.5 and bb["load_pct"] < 100
-    from pricewatch.config import get_settings
-    from pricewatch.services import readiness
-    monkeypatch.setattr(get_settings(), "min_domain_interval", 20.0)
-    monkeypatch.setattr(get_settings(), "domain_jitter", 0.3)
-    db = session_scope()
-    bb = next(p for p in readiness.load_plan(db, {}) if p["domain"] == "bestbuy.ca")
-    db.close()
-    assert bb["capacity_per_hour"] == 156.5  # 3600 / (20 s * 1.15)
-    assert keys["load"]["status"] == "ok"
-    assert r["overall"] in ("warn", "fail")
-    assert client.get("/api/sale-mode").json()["windows"][1]["name"] == "Boxing Week"
-
-
 async def test_llm_check_caches(db_session, monkeypatch):
     from pricewatch.models import LlmMatchCache
     from pricewatch.services import llm_match
@@ -192,11 +157,10 @@ def test_discovery_uses_llm_to_reject(client, fake, monkeypatch):  # noqa: F811
                                            "model": "WH1000XM6/B"}).json()
     body = client.post(f"/api/items/{item['id']}/discover", json={}).json()
     st = {c["url"]: c for c in body["candidates"]}
-    assert st["https://www.bestbuy.ca/en-ca/product/sony-wh-1000xm6/18930123"]["status"] == "suggested"
+    assert st["https://www.bestbuy.ca/en-ca/product/sony-wh-1000xm6/18930123"]["status"] == "matched"
     staples = st["https://www.staples.ca/products/2988123-en-sony-wh1000xm6"]
     assert staples["status"] == "low match" and any("Claude" in x for x in staples["reasons"])
-    assert body["added"] == 1
-
+    assert body["added"] == 1  # only Best Buy is tracked
 
 
 def test_llm_band_uses_real_matcher_scale():

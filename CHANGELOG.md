@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.0.0] - 2026-11-16
+PriceWatch is now product-first: you name a product and it compares every Canadian store.
+
+### Added
+- One search box on Add for a name, a store link or a barcode (camera scan). PriceWatch works out the product and shows every Canadian store's price, cheapest first, with tax for your province and shipping, before anything is saved. Marketplace sellers and sites that are not known Canadian stores are folded away
+- Watch: saves the product and tracks every recognised store at once, reusing the comparison's search (no second paid search). A suggested alert price, about 10% under today's best, is filled in
+- Each store found becomes a watched store for the item and every search price is recorded as its history, so lows, the buy advice, price-match tips and alerts cover all stores
+- About 40 Canadian stores recognised by the names search results use (Walmart.ca, Best Buy, EB Games, Costco and so on); The Source maps to Best Buy
+- Smarter refresh: hot items and items close to their target first, twice a day during sale events, still paced to the monthly search limit
+- Verify on a watched store: stores that block visits are read by Claude right away
+- Item page leads with prices across stores; hidden stores can be watched again
+
+### Changed
+- Stores that block automated visits (Walmart, Costco, Canadian Tire, Sport Chek, Amazon.ca, Superstore) get prices from searches ("search results only") instead of the browser or Keepa
+- "Sources" is now "Stores watched"; "Check" is "Verify"; "Search other stores" is "Refresh prices"
+- Listings are no longer suggested for you to confirm: recognised stores are watched automatically and you hide any you do not want
+
+### Removed
+- The Playwright browser sidecar (one container less, about 2 GB less memory). `update.sh` removes the old container
+- Keepa (Amazon.ca), the changedetection.io bridge, the Best Buy product JSON mode, proof screenshots, the page tester and fixtures tool, and the sale-mode readiness check
+- Paste-a-list, bookmarklet and iPhone Shortcut instructions on Add (the Android share target and the API still work)
+- Settings for auto-confirming matches and the browser fallback; `KEEPA_API_KEY`, `CHANGEDETECTION_*` and `PRICEWATCH_BROWSER_*` are ignored
+
 ## [0.16.0] - 2026-11-16
 ### Added
 - Prices across stores: every search keeps the lowest price each store shows for the item (Google Shopping through SerpApi, or Claude web search), one row per store, cheapest first. Used and refurbished listings and poor matches are left out. Each row opens the store's page (or Google Shopping when Google gives no store link) and has a Track button to check that store's page on a schedule

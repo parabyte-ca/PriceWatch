@@ -71,7 +71,7 @@ deploy_current_checkout() {
     docker build -t "parabyte-ca/pricewatch:$version" --build-arg VERSION="$version" --build-arg REVISION="$revision" .
     set_env PRICEWATCH_IMAGE "parabyte-ca/pricewatch"
   fi
-  docker compose build browser
+  docker compose rm -sf browser >/dev/null 2>&1 || true  # the browser sidecar was removed in 1.0
   log "restarting containers"
   docker compose up -d
 }

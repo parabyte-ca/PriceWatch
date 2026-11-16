@@ -2,16 +2,14 @@
 # End-to-end smoke test: start the stack on a clean data folder, add a fixture-served product,
 # lower the target above the current price and assert the alert reaches the notification endpoint,
 # then restart the app and check the data survived.
-# Usage: scripts/smoke.sh [--keep] [--browser]
+# Usage: scripts/smoke.sh [--keep]
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 KEEP=false
-BROWSER=false
 for arg in "$@"; do
   case "$arg" in
     --keep) KEEP=true ;;
-    --browser) BROWSER=true ;;
   esac
 done
 
@@ -25,7 +23,6 @@ echo "PRICEWATCH_ENV_FILE=$ENVFILE" >> "$ENVFILE"
 # never touches a real .env: the stack reads only the temporary file
 COMPOSE=(docker compose -p pricewatch-smoke --env-file "$ENVFILE" -f docker-compose.yml -f scripts/docker-compose.smoke.yml)
 SERVICES=(pricewatch fixtures)
-$BROWSER && SERVICES+=(browser)
 BASE="http://127.0.0.1:$PORT"
 JAR=$(mktemp)
 
@@ -86,13 +83,6 @@ SID=$(echo "$ITEM" | jget 'd["sources"][0]["id"]')
 OUT=$(req POST "/api/sources/$SID/check" | jget 'd["outcome"]')
 [ "$OUT" = "ok" ] || fail "manual check outcome $OUT"
 pass "check now: $OUT"
-
-if $BROWSER; then
-  req PATCH "/api/sources/$SID" '{"fetch_mode":"browser"}' >/dev/null
-  OUT=$(req POST "/api/sources/$SID/check" | jget 'd["outcome"]')
-  [ "$OUT" = "ok" ] || fail "browser check outcome $OUT"
-  pass "browser sidecar render: $OUT"
-fi
 
 "${COMPOSE[@]}" restart pricewatch >/dev/null
 wait_healthy

@@ -14,7 +14,7 @@ function verdict(i: Item): string {
   if (isBuy(i)) return s.decision === "BUY_AND_PROTECT" ? "Good price, and the store will refund a later drop." : "Good time to buy.";
   const m = online(i);
   if (!hasPrice(i) && m) return `Best online: ${money(m.price_cents)} at ${m.merchant} (${i.summary.market!.stores} store${i.summary.market!.stores === 1 ? "" : "s"} compared).`;
-  if (!hasPrice(i)) return s.suggested_count ? `${s.suggested_count} store listing${s.suggested_count > 1 ? "s" : ""} to confirm.` : "No price yet.";
+  if (!hasPrice(i)) return "Looking for prices at Canadian stores.";
   if (s.distance_to_low_pct != null && s.distance_to_low_pct > 0) return `${s.distance_to_low_pct}% above the lowest price this season.`;
   return "Waiting for a better price.";
 }

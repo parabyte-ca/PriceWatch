@@ -1,14 +1,14 @@
-"""Basket optimiser and sale-mode readiness."""
+"""Basket optimiser and sale mode."""
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..auth import current_user, require_admin
+from ..auth import current_user
 from ..db import get_db
 from ..models import Item, User
-from ..services import basket, events, readiness, settings_store
+from ..services import basket, events, settings_store
 from ..services.users import list_ids
 
 router = APIRouter(prefix="/api", tags=["planning"])
@@ -44,6 +44,3 @@ def sale_mode(db: Session = Depends(get_db), _: User = Depends(current_user)):
             "windows": [{"name": n, "start": a.isoformat(), "end": b.isoformat()} for n, a, b in events.sale_windows(cfg)]}
 
 
-@router.get("/admin/readiness")
-def sale_readiness(db: Session = Depends(get_db), _: User = Depends(require_admin)):
-    return readiness.run(db)

@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { ago, api, localTime, money, toCents, toDollars } from "../api";
 import ClaudeSetup from "../components/ClaudeSetup";
-import Readiness from "../components/Readiness";
-import { Diagnose, Perks } from "../components/Tools";
+import { Perks } from "../components/Tools";
 import Updates from "../components/Updates";
 import { useSession } from "../session";
 
@@ -62,9 +61,7 @@ export default function SystemPage() {
   return (
     <div className="space-y-4">
       {user?.role === "admin" && <Updates />}
-      {user?.role === "admin" && <Readiness />}
       {user?.role === "admin" && <ClaudeSetup />}
-      {user?.role === "admin" && <Diagnose />}
       <Perks admin={user?.role === "admin"} />
       <div className="card grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
         <div><div className="label">Version</div>{data.version}</div>
@@ -107,7 +104,7 @@ export default function SystemPage() {
         <h2 className="mb-2 font-semibold">Retailers in use</h2>
         <table className="w-full">
           <thead><tr>
-            <th className="th">Retailer</th><th className="th">Fetch mode</th><th className="th">robots.txt</th>
+            <th className="th">Retailer</th><th className="th">Prices from</th><th className="th">robots.txt</th>
             <th className="th">Free shipping from</th><th className="th">Shipping</th><th className="th"></th>
           </tr></thead>
           <tbody>
@@ -116,9 +113,7 @@ export default function SystemPage() {
                 <td className="td">{r.name}<div className="text-xs text-slate-500">{r.domain}</div></td>
                 <td className="td">
                   <select className="input w-auto py-1" value={r.fetch_mode} onChange={(e) => patch(r.id, { fetch_mode: e.target.value })}>
-                    <option value="auto">auto</option><option value="http">http only</option><option value="browser">browser</option>
-                    {r.domain === "bestbuy.ca" && <option value="bestbuy_api">product JSON (beta)</option>}
-                    <option value="keepa">keepa</option><option value="manual">manual only</option>
+                    <option value="auto">store page</option><option value="search">search results only</option><option value="manual">manual only</option>
                   </select>
                 </td>
                 <td className="td">

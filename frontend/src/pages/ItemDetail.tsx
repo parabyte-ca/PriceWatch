@@ -41,16 +41,12 @@ export default function ItemDetail() {
   const [form, setForm] = useState({ name: "", brand: "", model: "", gtin: "", list: "", target: "", max: "", hot: false,
     priority: 3, notes: "", amazon: "", query: "" });
   const [rules, setRules] = useState<Record<string, boolean>>({});
-  const [cdEnabled, setCdEnabled] = useState(false);
   const [buying, setBuying] = useState(false);
   const [purchases, setPurchases] = useState<PurchaseInfo[]>([]);
   const loadPurchases = useCallback(() => {
     api<PurchaseInfo[]>(`/api/purchases?item_id=${id}`).then(setPurchases).catch(() => {});
   }, [id]);
   useEffect(() => { loadPurchases(); }, [loadPurchases]);
-  useEffect(() => {
-    fetch("/healthz").then((r) => r.json()).then((h) => setCdEnabled(h.changedetection !== undefined)).catch(() => {});
-  }, []);
   const [newUrl, setNewUrl] = useState("");
   const [manual, setManual] = useState({ store: "", price: "", shipping: "" });
 
@@ -194,7 +190,7 @@ export default function ItemDetail() {
           )}
           <div className="flex flex-wrap gap-2">
             <button className="btn-ghost" onClick={() => run(() => api(`/api/items/${id}/check`, { method: "POST" }), "Checks queued; refresh in a minute")}>
-              Check all now
+              Refresh all
             </button>
             <button className="btn-ghost" onClick={() => setBuying(true)}>Bought</button>
             {s.snoozed ? (
@@ -206,7 +202,6 @@ export default function ItemDetail() {
               <>
                 <a className="btn-ghost" href={`https://www.amazon.ca/dp/${asin}`} target="_blank" rel="noreferrer"
                   title="Open the product and use Amazon's Price History panel to check">Check Amazon Price History</a>
-                <a className="btn-ghost" href={`https://keepa.com/#!product/6-${asin}`} target="_blank" rel="noreferrer">Keepa</a>
                 <a className="btn-ghost" href={`https://ca.camelcamelcamel.com/product/${asin}`} target="_blank" rel="noreferrer">CamelCamelCamel</a>
               </>
             )}
@@ -220,6 +215,8 @@ export default function ItemDetail() {
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>
       </div>
+
+      <Suggestions item={item} onChange={load} />
 
       <div className="card">
         <h2 className="mb-2 font-semibold">Price history (before tax)</h2>
@@ -250,7 +247,7 @@ export default function ItemDetail() {
       </div>
 
       <div className="card overflow-x-auto">
-        <h2 className="mb-2 font-semibold">Sources</h2>
+        <h2 className="mb-2 font-semibold">Stores watched</h2>
         <table className="w-full table-fixed sm:table-auto">
           <thead>
             <tr>
@@ -285,8 +282,8 @@ export default function ItemDetail() {
                     {!src.url.startsWith("manual://") && (
                       <button className="btn-ghost px-2 py-0.5 text-xs" onClick={() => run(async () => {
                         const r = await api<{ outcome: string }>(`/api/sources/${src.id}/check`, { method: "POST" });
-                        flash(`Check result: ${r.outcome}`);
-                      })}>Check</button>
+                        flash(r.outcome === "ok" ? "Price verified" : `Could not verify: ${r.outcome.replace("_", " ")}`);
+                      })}>Verify</button>
                     )}
                     <button className="btn-ghost px-2 py-0.5 text-xs text-red-600" onClick={() => confirm("Remove this source and its history?") &&
                       run(() => api(`/api/sources/${src.id}`, { method: "DELETE" }), "Source removed")}>Remove</button>
@@ -306,15 +303,9 @@ export default function ItemDetail() {
                     <button className="btn-ghost px-2 py-1 text-xs"
                       onClick={() => run(async () => {
                         const r = await api<{ outcome: string }>(`/api/sources/${src.id}/check`, { method: "POST" });
-                        flash(`Check result: ${r.outcome}`);
+                        flash(r.outcome === "ok" ? "Price verified" : `Could not verify: ${r.outcome.replace("_", " ")}`);
                       })}>
-                      Check
-                    </button>
-                  )}
-                  {cdEnabled && !src.url.startsWith("manual://") && src.fetch_mode !== "changedetection" && (
-                    <button className="btn-ghost ml-1 px-2 py-1 text-xs" title="Let changedetection.io fetch this page instead"
-                      onClick={() => run(() => api(`/api/sources/${src.id}/changedetection`, { method: "POST" }), "Handed to changedetection.io")}>
-                      CD.io
+                      Verify
                     </button>
                   )}
                   <button className="btn-ghost ml-1 px-2 py-1 text-xs text-red-600"
@@ -326,7 +317,7 @@ export default function ItemDetail() {
               </tr>
             ))}
             {!item.sources?.some((x) => x.status === "confirmed") && (
-              <tr><td className="td text-slate-500" colSpan={6}>No tracked sources yet. Add a retailer URL, log a price, or confirm a suggestion below.</td></tr>
+              <tr><td className="td text-slate-500" colSpan={6}>No stores yet. PriceWatch searches Canadian stores for this automatically; you can also add a store link or log a price.</td></tr>
             )}
           </tbody>
         </table>
@@ -361,7 +352,6 @@ export default function ItemDetail() {
       <Forecast itemId={item.id} />
       <DealThreads itemId={item.id} />
       <FlyerMatches itemId={item.id} />
-      <Suggestions item={item} onChange={load} />
 
       <form className="card grid gap-3 md:grid-cols-3" onSubmit={saveEdits}>
         <h2 className="font-semibold md:col-span-3">Edit this item</h2>

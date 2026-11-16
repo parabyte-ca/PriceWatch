@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from .. import scheduler
 from ..auth import current_user
-from ..config import get_settings
 from ..db import get_db
 from ..fetch.http import domain_of, looks_like_challenge
 from ..models import Item, Observation, SourceLink, User
@@ -42,7 +41,6 @@ from ..services.checker import (
     seller_type_for,
 )
 from ..services.discovery import DiscoveryError, discover, month_usage
-from ..services.keepa import KeepaError, asin_from_url, fetch_product
 from ..services.matching import normalize_url
 from ..services.policies import policy_for
 from ..services.retailers import get_or_create_retailer
@@ -177,8 +175,6 @@ async def preview(body: UrlIn, db: Session = Depends(get_db),
     _public_or_422(url)
     retailer = get_or_create_retailer(db, url)
     db.commit()
-    if retailer.fetch_mode == "keepa":
-        return await _keepa_preview(url, retailer)
     result, parsed, method = await fetch_and_parse(url, retailer, retailer.fetch_mode, use_cache=True)
     from ..adapters.base import ParsedProduct, clean_name
 
@@ -226,26 +222,6 @@ async def _claude_preview(url: str, parsed) -> dict:
     if found.title and (not parsed.name or len(parsed.name) < 8):
         parsed.name = found.title
     return {"used": True, "found": True, "seen_on": found.seen_on, "cost_usd": round(found.usd, 4)}
-
-
-async def _keepa_preview(url: str, retailer) -> dict:
-    base = {"url": url, "domain": retailer.domain, "retailer": retailer.name, "method": "keepa"}
-    key = get_settings().keepa_api_key
-    asin = asin_from_url(url)
-    if not key or not asin:
-        return {**base, "outcome": "needs_keepa", "product": None,
-                "error": "Amazon.ca prices come from Keepa (KEEPA_API_KEY). Without it, save the item and log "
-                         "prices by hand; use Amazon's Price History panel to check."
-                if not key else "No ASIN found in this Amazon URL"}
-    try:
-        p = await fetch_product(key, asin, history=False)
-    except KeepaError as exc:
-        return {**base, "outcome": "error", "error": str(exc), "product": None}
-    return {**base, "outcome": "ok", "error": None, "product": {
-        "name": p.title, "brand": p.brand, "mpn": p.model, "gtin": p.gtin, "image": p.image, "currency": "CAD",
-        "price_cents": p.amazon_price_cents or p.buybox_price_cents, "was_price_cents": p.list_price_cents,
-        "in_stock": bool(p.amazon_price_cents or p.buybox_price_cents),
-        "seller": "Amazon.ca" if p.amazon_price_cents else "buy box (may be a marketplace seller)"}}
 
 
 def _public_or_422(url: str) -> None:
@@ -300,7 +276,7 @@ async def create_item_from_url(db: Session, raw_url: str, *, name: str | None = 
     retailer = get_or_create_retailer(db, url)
     db.commit()
     mode = retailer.fetch_mode
-    if not fetch_now or mode in ("keepa", "manual", "changedetection"):
+    if not fetch_now or mode in ("manual", "search"):
         item = Item(name=(name or f"{retailer.name}: {url.split('/', 3)[-1][:120]}")[:300], target_price_cents=target,
                     hot=hot, priority=priority, autofill=not name, list_id=list_id,
                     added_by=user.id if user else None)
@@ -309,9 +285,6 @@ async def create_item_from_url(db: Session, raw_url: str, *, name: str | None = 
         src = _add_source(db, item, url)
         src.next_check_at = utcnow()
         db.commit()
-        if fetch_now and mode == "keepa" and get_settings().keepa_api_key:
-            db.close()
-            await check_source(src.id)
         return item
     result, parsed, method = await fetch_and_parse(url, retailer, mode, use_cache=True)
     item = Item(name=(name or (parsed.name if parsed else None) or domain_of(url))[:300],
@@ -379,11 +352,13 @@ def market_offers(item_id: int, db: Session = Depends(get_db), me: User = Depend
 
     item = _load_item(db, item_id, me)
     tracked = {normalize_url(s.url): s.status for s in item.sources}
+    by_domain = {s.retailer.domain: s.status for s in item.sources if s.retailer}
     rows = db.scalars(select(MarketOffer).where(MarketOffer.item_id == item.id)
                       .order_by(MarketOffer.price_cents)).all()
     return [{"merchant": o.merchant, "title": o.title, "price_cents": o.price_cents, "shipping_cents": o.shipping_cents,
              "url": o.url, "store_link": o.store_link, "provider": o.provider, "confidence": o.confidence,
-             "seen_at": o.seen_at.isoformat() + "Z", "tracked": tracked.get(normalize_url(o.url))} for o in rows]
+             "seen_at": o.seen_at.isoformat() + "Z", "kind": o.kind, "domain": o.domain,
+             "tracked": tracked.get(normalize_url(o.url)) or by_domain.get(o.domain)} for o in rows]
 
 
 @router.post("/items/{item_id}/discover")
@@ -431,7 +406,7 @@ async def check_now(source_id: int, db: Session = Depends(get_db),
         me: User = Depends(current_user)):
     _load_source(db, source_id, me, write=True)
     db.close()
-    outcome = await check_source(source_id)
+    outcome = await check_source(source_id, verify=True)
     return {"source_id": source_id, "outcome": outcome}
 
 

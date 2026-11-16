@@ -1,3 +1,7 @@
+> **1.0 note:** this is the original design record. Since 1.0 PriceWatch is product-first: one search compares every
+> Canadian store (Google Shopping through SerpApi, Claude web search), each known store is tracked automatically, and
+> the browser sidecar, Keepa and the changedetection.io bridge are gone. See CHANGELOG 1.0.0.
+
 # PriceWatch CA: Design Note (v0.1)
 
 Date: 2026-11-15. Status: approved to proceed (no blockers found).
