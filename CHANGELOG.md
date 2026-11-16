@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.0.1] - 2026-11-16
+### Fixed
+- Updating from 0.x to 1.0 failed at "Download and verify" with "no such service: browser": the old update script still built the browser sidecar that 1.0 removed. A placeholder service (never started) lets older update scripts finish, and `docker compose up` now removes the old browser container
+- Updates now deploy with the new release's own update script, and a failure while deploying (not only a failed health check) rolls back automatically
+
 ## [1.0.0] - 2026-11-16
 PriceWatch is now product-first: you name a product and it compares every Canadian store.
 
