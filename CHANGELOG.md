@@ -1,15 +1,16 @@
 # Changelog
 
-## [0.10.0] - 2026-11-16
-### Added
-- "Will it get cheaper?" on each item: a low, medium or high chance of a lower price soon, a likely low, and the reasons (drops seen, price against its usual level, two-week trend, next sale event); needs 10 days of prices
-- Weekly report, Sunday 18:00 (each person can turn it off): what to buy, what moved, what you bought and saved, money to claim; with the Claude check set up, Claude Haiku adds a two or three sentence summary on top
-
+## [0.10.1] - 2026-11-16
 ### Fixed
 - Browser checks no longer fail when a store page keeps loading (Sport Chek "Timeout 30000ms exceeded"): PriceWatch waits for the first response, then for a price on the page, and reads what has rendered by the deadline
 - Page titles that are not product names ("General PDP Template", error and challenge pages, the store's own name) are replaced with a name taken from the product URL
 - Sport Chek defaults to browser mode with 45 s spacing, like Canadian Tire (same platform); existing installs still on "auto" are switched
 - Clearer message when no price is found, with the next steps
+
+## [0.10.0] - 2026-11-16
+### Added
+- "Will it get cheaper?" on each item: a low, medium or high chance of a lower price soon, a likely low, and the reasons (drops seen, price against its usual level, two-week trend, next sale event); needs 10 days of prices
+- Weekly report, Sunday 18:00 (each person can turn it off): what to buy, what moved, what you bought and saved, money to claim; with the Claude check set up, Claude Haiku adds a two or three sentence summary on top
 
 ## [0.9.0] - 2026-11-16
 ### Added
