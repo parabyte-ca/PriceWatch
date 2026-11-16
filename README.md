@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.15.0-blue)
+![Version](https://img.shields.io/badge/version-0.15.1-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,

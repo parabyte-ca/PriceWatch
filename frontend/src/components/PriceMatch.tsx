@@ -10,7 +10,7 @@ export default function PriceMatchView({ item, o, onClose }: { item: Item; o: Pr
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100" role="dialog" aria-modal="true"
+    <div className="fixed inset-0 z-50 overflow-y-auto pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100" role="dialog" aria-modal="true"
       aria-label="Price match">
       <div className="mx-auto max-w-lg space-y-5 p-5 pb-24">
         <div className="flex items-center justify-between gap-3">

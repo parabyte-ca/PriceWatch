@@ -49,13 +49,13 @@ export default function AskPanel() {
     <>
       {!open && (
         <button onClick={() => setOpen(true)}
-          className="fixed bottom-20 right-4 z-30 rounded-full bg-red-700 px-4 py-2.5 text-sm font-medium text-white shadow-lg hover:bg-red-800 md:bottom-4">
+          className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 rounded-full bg-red-700 px-4 py-2.5 text-sm font-medium text-white shadow-lg hover:bg-red-800 md:bottom-4">
           Ask PriceWatch
         </button>
       )}
       {open && (
         <aside aria-label="Ask PriceWatch"
-          className="fixed inset-x-0 bottom-0 z-50 flex max-h-[85dvh] flex-col rounded-t-xl bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:h-[36rem] sm:w-[26rem] sm:rounded-xl">
+          className="fixed inset-x-0 bottom-0 top-[max(4rem,env(safe-area-inset-top))] z-50 flex flex-col rounded-t-xl pb-[env(safe-area-inset-bottom)] sm:top-auto bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:h-[36rem] sm:w-[26rem] sm:rounded-xl">
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2 dark:border-slate-800">
             <h2 className="text-sm font-semibold">Ask PriceWatch</h2>
             <div className="flex gap-2">
@@ -84,7 +84,7 @@ export default function AskPanel() {
             {error && <p role="alert" className="text-red-600">{error}</p>}
           </div>
           <form onSubmit={submit} className="flex gap-2 border-t border-slate-200 p-3 dark:border-slate-800">
-            <input aria-label="Question" className="input" placeholder={available ? "Ask about your list…" : "The household admin needs to add a Claude key"}
+            <input aria-label="Question" className="input text-base sm:text-sm" enterKeyHint="send" placeholder={available ? "Ask about your list…" : "The household admin needs to add a Claude key"}
               value={text} maxLength={2000} disabled={!available} onChange={(e) => setText(e.target.value)} />
             <button type="submit" disabled={busy || !text.trim() || !available} className="btn-primary">Ask</button>
           </form>

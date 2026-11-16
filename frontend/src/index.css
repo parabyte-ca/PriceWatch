@@ -4,6 +4,8 @@
 
 @layer base {
   code { overflow-wrap: anywhere; }
+  /* Android draws installed apps edge to edge: keep content clear of the status and gesture bars */
+  body { padding-top: env(safe-area-inset-top); }
 }
 
 @layer components {
