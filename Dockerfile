@@ -8,7 +8,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---- python dependencies ----
-FROM python:3.12-slim AS builder
+FROM python:3.15-slim AS builder
 ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
 WORKDIR /build
 COPY backend/pyproject.toml ./
@@ -16,7 +16,7 @@ RUN python -c "import tomllib; print(chr(10).join(tomllib.load(open('pyproject.t
     && python -m venv /venv && /venv/bin/pip install -r requirements.txt
 
 # ---- runtime ----
-FROM python:3.12-slim
+FROM python:3.15-slim
 ARG VERSION=0.0.0
 ARG REVISION=unknown
 LABEL org.opencontainers.image.title="pricewatch" \
