@@ -47,6 +47,7 @@ def fake(monkeypatch):
 
 
 def test_discover_suggests_matches_and_remembers_rejections(client, fake):
+    client.patch("/api/settings", json={"auto_confirm_strong": False})  # everything waits for a person here
     item = client.post("/api/items", json={"name": "Sony WH-1000XM6 Wireless Headphones Black", "brand": "Sony",
                                            "model": "WH1000XM6/B"}).json()
     r = client.post(f"/api/items/{item['id']}/discover", json={})
@@ -107,3 +108,16 @@ def test_no_provider(client, monkeypatch):
 def test_settings_numeric_validation(client):
     assert client.patch("/api/settings", json={"match_threshold": 20}).status_code == 422
     assert client.patch("/api/settings", json={"match_threshold": 90}).json()["match_threshold"] == 90
+
+
+def test_strong_matches_are_tracked_at_once(client, fake):
+    item = client.post("/api/items", json={"name": "Sony WH-1000XM6 Wireless Headphones Black", "brand": "Sony",
+                                           "model": "WH1000XM6/B"}).json()
+    body = client.post(f"/api/items/{item['id']}/discover", json={}).json()
+    st = {c["url"]: c for c in body["candidates"]}
+    bb = st["https://www.bestbuy.ca/en-ca/product/sony-wh-1000xm6/18930123"]
+    assert bb["status"] == "confirmed" and bb["method"] in ("mpn", "model", "gtin")
+    fuzzy = [c for c in body["candidates"] if c["status"] == "suggested"]
+    assert all(c["method"] == "fuzzy" for c in fuzzy)
+    src = next(s for s in client.get(f"/api/items/{item['id']}").json()["sources"] if s["url"] == bb["url"])
+    assert src["next_check_at"] is not None  # first price check queued

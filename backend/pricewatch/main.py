@@ -15,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import __version__, scheduler
 from .api import accounts as accounts_api
+from .api import ask as ask_api
 from .api import emailimports as email_api
 from .api import extra as extra_api
 from .api import homeassistant as ha_api
@@ -48,6 +49,9 @@ STATIC_DIR = Path(os.environ.get("PRICEWATCH_STATIC_DIR", Path(__file__).resolve
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     s = get_settings()
+    import asyncio
+
+    runtime.main_loop = asyncio.get_running_loop()
     setup_logging(s.log_level)
     s.data_dir.mkdir(parents=True, exist_ok=True)
     upgrade()
@@ -100,6 +104,7 @@ def create_app() -> FastAPI:
     app.include_router(planning_api.router)
     app.include_router(ha_api.router)
     app.include_router(email_api.router)
+    app.include_router(ask_api.router)
 
     @app.get("/healthz")
     def healthz():

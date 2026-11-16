@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from ..adapters.base import parse_price
 from ..config import get_settings
 from ..models import EmailImport, Item, Purchase, Retailer, SourceLink, User
-from . import events, llm_match, protection, settings_store
+from . import claude, events, llm_match, protection, settings_store
 from .matching import Candidate, ItemSpec, match
 
 log = logging.getLogger(__name__)
@@ -135,7 +135,7 @@ def claude_lines(text: str, items: list[Item], threshold: float) -> tuple[Order 
     import anthropic
 
     try:
-        client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key, timeout=60.0, max_retries=2)
+        client = anthropic.Anthropic(api_key=claude.api_key(), timeout=60.0, max_retries=2)
         response = client.messages.parse(
             model=get_settings().llm_match_model, max_tokens=4000, output_config={"effort": "low"},
             system=("You read a forwarded email and extract a retail order confirmation: the store, the order number "

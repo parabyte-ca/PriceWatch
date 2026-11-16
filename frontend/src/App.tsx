@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "./api";
+import AskPanel from "./components/AskPanel";
 import AddItem from "./pages/AddItem";
 import Basket from "./pages/Basket";
 import Lists from "./pages/Lists";
@@ -116,6 +117,7 @@ export default function App() {
         <Route path="/system" element={<SystemPage />} />
         <Route path="*" element={<div className="card">Page not found.</div>} />
       </Routes>
+      <AskPanel />
       <footer className="mt-10 text-center text-xs text-slate-400">PriceWatch CA v{version}</footer>
     </div>
     </SessionContext.Provider>

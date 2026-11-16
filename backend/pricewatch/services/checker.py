@@ -31,7 +31,8 @@ log = logging.getLogger(__name__)
 
 MAX_RETRY_AFTER = 24 * 3600
 CONFIDENCE = {"jsonld": 0.95, "css": 0.9, "microdata": 0.85, "opengraph": 0.7, "keepa": 0.99,
-              "changedetection": 0.9, "manual": 1.0, "bestbuy_api": 0.95}
+              "changedetection": 0.9, "manual": 1.0, "bestbuy_api": 0.95,
+              "embedded_json": 0.9}
 SKIP_MODES = ("manual", "changedetection")
 
 

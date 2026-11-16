@@ -35,6 +35,8 @@ DEFAULTS: dict = {
     "boxingweek_start": "2026-12-26T00:00",
     "boxingweek_end": "2026-12-31T23:59",
     "llm_match_enabled": False,
+    "web_search_enabled": True,
+    "auto_confirm_strong": True,
     "buy_within_pct": 2.0,
     "protect_within_pct": 5.0,
     "digest_enabled": True,

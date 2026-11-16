@@ -93,13 +93,7 @@ export default function AddItem() {
         method: "POST",
         json: { name: manualName, brand: brand || null, model: model || null, gtin: gtin || null, target_price_cents: toCents(target), list_id: chosenList },
       });
-      const [providers, settings] = await Promise.all([
-        api<{ providers: unknown[] }>("/api/discovery/providers"),
-        api<{ discover_on_add: boolean }>("/api/settings"),
-      ]);
-      if (providers.providers.length && settings.discover_on_add) {
-        await api(`/api/items/${item.id}/discover`, { method: "POST", json: {} }).catch(() => undefined);
-      }
+      // PriceWatch searches other stores in the background after the item is created
       nav(`/items/${item.id}`);
     } catch (err) {
       setError((err as Error).message);
@@ -140,7 +134,9 @@ export default function AddItem() {
                   </div>
                 ) : (
                   <div className="text-amber-700">
-                    No price found yet. {preview.method === "browser"
+                    No price found yet. {preview.outcome === "blocked"
+                      ? `${preview.retailer} showed a "Robot or human?" style check instead of the product. PriceWatch does not try to get past those checks, so this store may need prices logged by hand.`
+                      : preview.method === "browser"
                       ? "The store's page did not show a price to the browser in time; it may be slow or blocking automated visits."
                       : "The page has no readable price without a browser."}{" "}
                     You can still save it: PriceWatch keeps trying on its schedule, and you can log prices by hand on the item page.
@@ -215,8 +211,8 @@ export default function AddItem() {
       <form id="add-by-name" onSubmit={createByName} className="card space-y-3">
         <h2 className="text-lg font-semibold">Add by name</h2>
         <p className="text-sm text-slate-500">
-          Creates the item and, when a search provider is configured, looks it up on Google Shopping (Canada). You confirm
-          or reject each suggested listing on the item page.
+          PriceWatch looks for it at Canadian stores by itself. Exact matches (same model number or barcode) are tracked
+          right away; close matches wait on the item page for you to confirm.
         </p>
         <input className="input" required placeholder="Name, e.g. Sony WH-1000XM6 Headphones Black" value={manualName} onChange={(e) => setManualName(e.target.value)} />
         <div className="flex gap-2">
