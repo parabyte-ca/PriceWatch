@@ -76,6 +76,9 @@ def summarize_items(db: Session, items: list[Item], user_id: int | None = None) 
         landed = landed_price(price, _ship(src, price, ship), province, overrides)["landed_cents"]
         by_source[src_id].append(Point(at, landed, was))
 
+    from .discovery import market_summary
+
+    market = market_summary(db, ids)
     out: dict[int, dict] = {}
     for item in items:
         confirmed = [s for s in item.sources if s.status == "confirmed"]
@@ -170,5 +173,6 @@ def summarize_items(db: Session, items: list[Item], user_id: int | None = None) 
                 snoozes[item.id].snoozed_until and snoozes[item.id].snoozed_until > now))),
             "source_count": len(confirmed),
             "suggested_count": sum(1 for s in item.sources if s.status == "suggested"),
+            "market": market.get(item.id),
         }
     return out

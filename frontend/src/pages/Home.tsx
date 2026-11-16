@@ -6,11 +6,14 @@ import { useSession } from "../session";
 
 const isBuy = (i: Item) => i.summary.decision === "BUY" || i.summary.decision === "BUY_AND_PROTECT";
 const hasPrice = (i: Item) => i.summary.best_landed_cents != null;
+const online = (i: Item) => i.summary.market?.best ?? null;
 
 /** One plain sentence for a card: what to do and why. */
 function verdict(i: Item): string {
   const s = i.summary;
   if (isBuy(i)) return s.decision === "BUY_AND_PROTECT" ? "Good price, and the store will refund a later drop." : "Good time to buy.";
+  const m = online(i);
+  if (!hasPrice(i) && m) return `Best online: ${money(m.price_cents)} at ${m.merchant} (${i.summary.market!.stores} store${i.summary.market!.stores === 1 ? "" : "s"} compared).`;
   if (!hasPrice(i)) return s.suggested_count ? `${s.suggested_count} store listing${s.suggested_count > 1 ? "s" : ""} to confirm.` : "No price yet.";
   if (s.distance_to_low_pct != null && s.distance_to_low_pct > 0) return `${s.distance_to_low_pct}% above the lowest price this season.`;
   return "Waiting for a better price.";
@@ -48,7 +51,8 @@ function Row({ i, list }: { i: Item; list?: string }) {
         </div>
       </div>
       <div className="shrink-0 text-right">
-        <div className="font-semibold">{hasPrice(i) ? money(s.best_landed_cents) : "—"}</div>
+        <div className="font-semibold">{hasPrice(i) ? money(s.best_landed_cents) : online(i) ? money(online(i)!.price_cents) : "—"}</div>
+        {!hasPrice(i) && online(i) && <div className="text-xs text-slate-500">online, before tax</div>}
         {i.target_price_cents != null && <div className="text-xs text-slate-500">target {money(i.target_price_cents)}</div>}
       </div>
     </Link>

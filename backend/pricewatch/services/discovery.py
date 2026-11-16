@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import re
 from datetime import timedelta
 from urllib.parse import urlsplit
 
@@ -9,7 +10,7 @@ import httpx
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import Item, SerpSearch, SourceLink
+from ..models import Item, MarketOffer, SerpSearch, SourceLink
 from ..serp import ProviderError, SerpProvider, get_provider
 from ..timeutil import utcnow
 from . import llm_match, settings_store
@@ -121,6 +122,7 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
     out, seen = [], set()
     added = 0
     notes: list[str] = []
+    offers: list[dict] = []
 
     async def consider(cand: Candidate, via: str) -> dict | None:
         nonlocal added
@@ -135,6 +137,11 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
             if ai and not ai["same_product"]:
                 result.accepted = False
                 result.reasons = [*result.reasons, f"Claude: not the same product ({ai['reason']})"]
+        if result.accepted and cand.price_cents and (cand.condition in (None, "new")):
+            offers.append({"merchant": cand.merchant or (urlsplit(url).hostname or ""), "title": cand.title,
+                           "price_cents": cand.price_cents, "shipping_cents": cand.shipping_cents, "url": url,
+                           "store_link": _is_merchant_url(url), "provider": via,
+                           "confidence": result.confidence})
         row = {"title": cand.title, "url": url, "merchant": cand.merchant, "price_cents": cand.price_cents,
                "confidence": result.confidence, "method": result.method, "accepted": result.accepted,
                "reasons": result.reasons, "exclusions": result.exclusions, "ai": ai, "via": via,
@@ -181,7 +188,7 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
             try:
                 stores, _ = await run_search(db, item, _StoreList(provider, row["token"]),
                                              "stores:" + hashlib.sha1(row["token"].encode()).hexdigest()[:16],
-                                             force, client)
+                                             False, client)  # store lists change rarely: a week's cache is fine
             except DiscoveryError as exc:
                 notes.append(f"store links: {exc}")
                 break
@@ -203,13 +210,86 @@ async def discover(db: Session, item: Item, *, provider_name: str | None = None,
 
     for r in out:
         r.pop("token", None)
+    market = save_offers(db, item, offers)
     db.commit()
     out.sort(key=lambda r: (not r["accepted"], -r["confidence"]))
     log.info("discovery", extra={"item_id": item.id, "provider": provider.name, "cached": cached,
                                  "candidates": len(out), "added": added})
     return {"provider": provider.name, "query": query, "cached": cached, "added": added,
             "usage": month_usage(db, provider.name), "limit": int(cfg["serp_monthly_limit"] or 0),
-            "candidates": out, "notes": notes}
+            "candidates": out, "notes": notes, "market": market}
+
+
+def merchant_key(name: str) -> str:
+    """One key per store: "Walmart.ca", "walmart.ca" and "Walmart" are the same shop."""
+    n = (name or "").lower().strip()
+    n = re.sub(r"^(www\.)", "", n)
+    n = re.sub(r"\.(ca|com)$", "", n)
+    n = re.sub(r"\s*(canada|ca)$", "", n).strip(" -:")
+    return n or "?"
+
+
+def save_offers(db: Session, item: Item, offers: list[dict]) -> dict:
+    """Replace the item's snapshot with the lowest price per store, then alert when the best one hits the target."""
+    best_by_store: dict[str, dict] = {}
+    for o in offers:
+        k = merchant_key(o["merchant"])
+        cur = best_by_store.get(k)
+        total = o["price_cents"] + (o["shipping_cents"] or 0)
+        if cur is None or total < cur["_total"] or (total == cur["_total"] and o["store_link"]
+                                                      and not cur["store_link"]):
+            best_by_store[k] = {**o, "_total": total}
+    db.query(MarketOffer).filter(MarketOffer.item_id == item.id).delete()
+    now = utcnow()
+    rows = []
+    for o in sorted(best_by_store.values(), key=lambda o: o["_total"]):
+        row = MarketOffer(item_id=item.id, merchant=o["merchant"][:120], title=(o["title"] or "")[:500],
+                          price_cents=o["price_cents"], shipping_cents=o["shipping_cents"], url=o["url"][:1000],
+                          store_link=o["store_link"], provider=o["provider"][:30], confidence=o["confidence"],
+                          seen_at=now)
+        db.add(row)
+        rows.append(row)
+    db.commit()
+    if rows and item.target_price_cents and rows[0].price_cents <= item.target_price_cents:
+        from . import alerts
+
+        b = rows[0]
+        alerts.raise_alert(db, item=item, rule="market_target", key=f"market:{item.id}:{b.price_cents}",
+                           title=f"{item.name}: {alerts.money(b.price_cents)} at {b.merchant}",
+                           body=f"Found online at {b.merchant} for {alerts.money(b.price_cents)} (your target "
+                                f"{alerts.money(item.target_price_cents)}). Seen in search results; check the "
+                                "store's page before buying.", url=b.url)
+    return {"stores": len(rows), "best_cents": rows[0].price_cents if rows else None}
+
+
+def market_summary(db: Session, item_ids: list[int]) -> dict[int, dict]:
+    """Best price found online per item, with the store count and when it was seen."""
+    out: dict[int, dict] = {}
+    if not item_ids:
+        return out
+    for o in db.scalars(select(MarketOffer).where(MarketOffer.item_id.in_(item_ids))
+                        .order_by(MarketOffer.item_id, MarketOffer.price_cents)).all():
+        m = out.setdefault(o.item_id, {"best": None, "stores": 0, "seen_at": o.seen_at})
+        m["stores"] += 1
+        if m["best"] is None:
+            m["best"] = {"merchant": o.merchant, "price_cents": o.price_cents, "shipping_cents": o.shipping_cents,
+                         "url": o.url, "store_link": o.store_link, "title": o.title}
+    return out
+
+
+def _within_budget(db: Session, provider) -> bool:
+    """Spread paid searches evenly over the month: never run ahead of the monthly limit's daily pace."""
+    import calendar
+
+    if provider.name == "claude":
+        return True  # the Claude spending cap applies instead
+    limit = int(settings_store.get(db, "serp_monthly_limit") or 0)
+    if not limit:
+        return True
+    now = utcnow()
+    days = calendar.monthrange(now.year, now.month)[1]
+    pace = limit * now.day / days
+    return month_usage(db, provider.name) < pace
 
 
 async def barcode_lookup(db: Session, code: str) -> dict:
@@ -281,9 +361,15 @@ def start_background(item_id: int) -> None:
             asyncio.run_coroutine_threadsafe(discover_in_background(item_id), runtime.main_loop)
 
 
-async def refresh_stale(db: Session, per_run: int = 5, days: int = 7) -> int:
-    """Weekly re-search for active items, a few per run, so new stores and new listings are found."""
-    if get_provider(None) is None or not settings_store.get(db, "discover_on_add"):
+async def refresh_stale(db: Session, per_run: int = 5, days: float = 1) -> int:
+    """Re-search active items about daily, a few per run, so prices across stores stay current.
+
+    Paced against the monthly search limit, so the searches last the whole month.
+    """
+    provider = get_provider(None)
+    if provider is None or not settings_store.get(db, "discover_on_add"):
+        return 0
+    if not _within_budget(db, provider):
         return 0
     since = utcnow() - timedelta(days=days)
     recent = set(db.scalars(select(SerpSearch.item_id).where(SerpSearch.created_at >= since,
@@ -292,8 +378,10 @@ async def refresh_stale(db: Session, per_run: int = 5, days: int = 7) -> int:
              if i.id not in recent][:per_run]
     done = 0
     for item in items:
+        if not _within_budget(db, provider):
+            break
         try:
-            await discover(db, item)
+            await discover(db, item, force=True)
             done += 1
         except DiscoveryError as exc:
             log.info("weekly discovery stopped", extra={"reason": str(exc)})

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0] - 2026-11-16
+### Added
+- Prices across stores: every search keeps the lowest price each store shows for the item (Google Shopping through SerpApi, or Claude web search), one row per store, cheapest first. Used and refurbished listings and poor matches are left out. Each row opens the store's page (or Google Shopping when Google gives no store link) and has a Track button to check that store's page on a schedule
+- Item page: "Best price found online" at the top, with the store, the number of stores compared and when it was seen. Home shows it for items with no tracked price yet
+- Alert when the best price found online reaches your target (once per price)
+- Searches now refresh about daily per item instead of weekly, paced so the monthly search limit lasts the whole month
+
 ## [0.15.1] - 2026-11-16
 ### Fixed
 - "Other stores" found results but no store links: Google Shopping now hides the stores' own links. PriceWatch opens the store list of the best matching product (one SerpApi search each, at most two, cached a week) and tracks the stores' own product pages. If that still gives no store link, it asks Claude's web search (when a key is saved)

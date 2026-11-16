@@ -428,6 +428,27 @@ class FlyerMatch(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class MarketOffer(Base):
+    """The latest price each store shows for an item in search results (Google Shopping or Claude web search).
+
+    Replaced on every search, so it is a snapshot, not a history. Tracked store pages keep their own history.
+    """
+
+    __tablename__ = "market_offers"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    merchant: Mapped[str] = mapped_column(String(120))
+    title: Mapped[str] = mapped_column(String(500))
+    price_cents: Mapped[int] = mapped_column(Integer)
+    shipping_cents: Mapped[int | None] = mapped_column(Integer)
+    url: Mapped[str] = mapped_column(String(1000))
+    store_link: Mapped[bool] = mapped_column(Boolean, default=False)  # False: a Google Shopping page
+    provider: Mapped[str] = mapped_column(String(30))
+    confidence: Mapped[float | None] = mapped_column(Float)
+    seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 class LlmMatchCache(Base):
     """Cached Claude answers to "same product?" for one item description and one listing title."""
 

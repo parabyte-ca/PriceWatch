@@ -150,7 +150,7 @@ async def order_emails() -> None:
 
 
 async def rediscover() -> None:
-    """Weekly search per active item for new stores (a few items per run; the monthly search cap still applies)."""
+    """Daily search per active item for prices across stores (a few items per run, paced to the monthly limit)."""
     from .services import discovery
 
     db = session_scope()
@@ -210,7 +210,7 @@ def start() -> AsyncIOScheduler:
                        coalesce=True)
     _scheduler.add_job(deal_feed, "interval", minutes=15, id="deal_feed", max_instances=1, coalesce=True)
     _scheduler.add_job(flyers, "interval", hours=1, id="flyers", max_instances=1, coalesce=True)
-    _scheduler.add_job(rediscover, "interval", hours=6, id="rediscover", max_instances=1, coalesce=True)
+    _scheduler.add_job(rediscover, "interval", hours=2, id="rediscover", max_instances=1, coalesce=True)
     _scheduler.add_job(order_emails, "interval", minutes=10, id="order_emails", max_instances=1, coalesce=True)
     _scheduler.add_job(pre_event_backup, "interval", minutes=15, id="pre_event_backup", max_instances=1, coalesce=True)
     _scheduler.start()

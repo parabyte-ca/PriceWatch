@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, DiscoveryResult, Item, money } from "../api";
+import { ago, api, DiscoveryResult, Item, money, Offer } from "../api";
 
 const pct = (n: number | null) => (n == null ? "" : `${Math.round(n * 100)}%`);
 
@@ -9,6 +9,15 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
   const [error, setError] = useState("");
   const [showRejected, setShowRejected] = useState(false);
   const [status, setStatusInfo] = useState<{ searching: boolean; provider: string | null } | null>(null);
+  const [offers, setOffers] = useState<Offer[] | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const loadOffers = () => api<Offer[]>(`/api/items/${item.id}/offers`).then(setOffers).catch(() => setOffers([]));
+  useEffect(() => { loadOffers(); }, [item.id, item.sources?.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  const track = async (url: string) => {
+    setError("");
+    try { await api(`/api/items/${item.id}/sources`, { method: "POST", json: { url } }); onChange(); loadOffers(); }
+    catch (e) { setError((e as Error).message); }
+  };
   // a search starts by itself when an item is added; show it and refresh when it finishes
   useEffect(() => {
     let stop = false;
@@ -16,7 +25,7 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
     const poll = () => api<{ searching: boolean; provider: string | null }>(`/api/items/${item.id}/discover`).then((st) => {
       if (stop) return;
       setStatusInfo(st);
-      if (was && !st.searching) onChange();
+      if (was && !st.searching) { onChange(); loadOffers(); }
       was = st.searching;
       if (st.searching) setTimeout(poll, 4000);
     }).catch(() => {});
@@ -45,6 +54,7 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
       const r = await api<DiscoveryResult>(`/api/items/${item.id}/discover`, { method: "POST", json: { force } });
       setResult(r);
       onChange();
+      loadOffers();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -68,6 +78,34 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
         )}
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {offers && offers.length > 0 && (
+        <div>
+          <div className="label">Prices across {offers.length} store{offers.length === 1 ? "" : "s"}, cheapest first (before tax)</div>
+          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+            {(showAll ? offers : offers.slice(0, 8)).map((o, n) => (
+              <li key={o.url} className="flex items-center gap-2 py-2 text-sm">
+                <div className="min-w-0 flex-1">
+                  <a href={o.url} target="_blank" rel="noreferrer" className={`font-medium hover:underline ${n === 0 ? "text-green-700 dark:text-green-400" : ""}`}>
+                    {o.merchant}
+                  </a>
+                  <div className="truncate text-xs text-slate-500" title={o.title}>{o.title}</div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="font-semibold">{money(o.price_cents)}</div>
+                  <div className="text-xs text-slate-400">{o.shipping_cents === 0 ? "free ship" : o.shipping_cents ? `+${money(o.shipping_cents)} ship` : ""}</div>
+                </div>
+                {o.tracked ? <span className="w-16 shrink-0 text-center text-xs text-slate-500">{o.tracked === "confirmed" ? "tracked" : o.tracked}</span>
+                  : o.store_link ? <button className="btn-ghost w-16 shrink-0 px-2 py-1 text-xs" onClick={() => track(o.url)} title="Check this store's page on a schedule">Track</button>
+                  : <span className="w-16 shrink-0 text-center text-[11px] text-slate-400" title="Google Shopping did not give this store's own link">Google</span>}
+              </li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            {offers.length > 8 && <button className="hover:underline" onClick={() => setShowAll(!showAll)}>{showAll ? "Show fewer" : `Show all ${offers.length}`}</button>}
+            <span>Seen {ago(offers[0].seen_at)} in search results; refreshed about daily. Prices can include sellers on a store's marketplace.</span>
+          </div>
+        </div>
+      )}
       {status?.searching && <p className="text-sm text-slate-500">Looking for this at other Canadian stores ({via})… Matches with the same model number or barcode start being tracked automatically.</p>}
       {!via && <p className="text-sm text-slate-500">To find this at other stores automatically, the household admin adds a Claude key (Household admin) or a SerpApi key.</p>}
 

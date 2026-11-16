@@ -106,7 +106,12 @@ export interface PriceMatch {
   policy_notes: string | null;
 }
 
+export interface MarketBest { merchant: string; price_cents: number; shipping_cents: number | null; url: string; store_link: boolean; title: string }
+export interface Offer { merchant: string; title: string; price_cents: number; shipping_cents: number | null; url: string;
+  store_link: boolean; provider: string; confidence: number | null; seen_at: string; tracked: string | null }
+
 export interface Summary {
+  market?: { best: MarketBest | null; stores: number; seen_at: string } | null;
   best: { source_id: number; url: string; retailer: string | null; domain: string | null; landed: Landed;
     was_price_cents: number | null; channel: string;
     after_perks_cents?: number; perks_saving_cents?: number; perks?: { label: string; percent: number | null; kind: string }[] } | null;

@@ -146,6 +146,21 @@ export default function ItemDetail() {
             <span className="font-semibold">{s.badge}:</span> {s.decision_reason}. <Confidence level={s.history_confidence} days={s.history_days} />
             {s.snoozed && <span className="ml-2 text-amber-700">Alerts snoozed.</span>}
           </div>
+          {s.market?.best && (s.best_price_cents == null || s.market.best.price_cents < s.best_price_cents) && (
+            <a href={s.market.best.url} target="_blank" rel="noreferrer"
+              className="block rounded-lg border border-green-600/40 bg-green-50 p-3 text-sm text-green-900 hover:shadow dark:bg-green-950/40 dark:text-green-100">
+              <div className="text-xs uppercase tracking-wide opacity-80">Best price found online</div>
+              <div className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-2xl font-bold">{money(s.market.best.price_cents)}</span>
+                <span className="font-medium">at {s.market.best.merchant}</span>
+                {s.market.best.shipping_cents === 0 && <span className="text-xs">free shipping</span>}
+              </div>
+              <div className="text-xs opacity-80">
+                Before tax · {s.market.stores} store{s.market.stores === 1 ? "" : "s"} compared · seen {ago(s.market.seen_at)} ·
+                {s.market.best.store_link ? " opens the store's page" : " opens Google Shopping"}
+              </div>
+            </a>
+          )}
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="Best landed" value={money(s.best_landed_cents)}
               note={s.best ? `${money(s.best.landed.price_cents)} + ${s.best.landed.shipping_known ? money(s.best.landed.shipping_cents) + " ship" : "shipping unknown"} + ${money(s.best.landed.tax_cents)} tax, ${s.best.retailer}` : undefined} />
