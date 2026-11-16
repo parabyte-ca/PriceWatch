@@ -149,7 +149,7 @@ def test_parse_feed_is_safe_and_splits_titles():
 
 
 def test_feed_matches_wishlist_dedupes_and_correlates(client, pages, sent):
-    client.patch("/api/settings", json={"notify_urls": ["ntfys://ntfy.sh/me"]})
+    client.patch("/api/settings", json={"notify_urls": ["ntfys://ntfy.sh/me"], "alert_deal_feed": True})
     xm6 = client.post("/api/items/from-url", json={"url": "https://www.bestbuy.ca/xm6"}).json()
     drill = client.post("/api/items", json={"name": "DEWALT 20V MAX Cordless Drill Kit", "brand": "DEWALT",
                                             "model": "DCD777C2"}).json()

@@ -99,14 +99,12 @@ def ingest(db: Session, item: Item, rows: list[dict], postal: str) -> list[Flyer
         until = f" until {fm.valid_to:%b %d}" if fm.valid_to else ""
         for user in members_of(db, item.list_id):
             cfg = settings_store.get_all(db, user.id)
-            if not cfg.get("alert_flyer", True):
-                continue
             at_target = bool(item.target_price_cents and fm.price_cents and fm.price_cents <= item.target_price_cents)
             raise_alert(
                 db, item=item, rule="flyer", key=f"flyer:{fm.id}", user_id=user.id,
                 title=f"Flyer: {item.name} at {fm.merchant}" + (f" {money(fm.price_cents)}" if fm.price_cents else ""),
                 body=f"{fm.title}{until}. Flyer prices are often in-store or regional; check before you go.",
-                url=fm.url, cfg=cfg, instant=at_target)
+                url=fm.url, cfg=cfg, instant=at_target and bool(cfg.get("alert_flyer")))  # else the daily summary
     db.commit()
     return new
 

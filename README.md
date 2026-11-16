@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-0.11.0-blue)
+![Version](https://img.shields.io/badge/version-0.12.0-blue)
 
 ## Overview
 PriceWatch CA keeps your wishlist, checks Canadian retailer product pages on a schedule,
@@ -10,6 +10,7 @@ whether a sale is real. Built for Black Friday and Cyber Monday 2026: add items 
 there is history to compare against.
 
 ## Features
+- Simple to use: four tabs (Home, Add, Lists, Me), "Buy now" at the top of Home, and three-way presets for how eager to buy and when to be notified; every number is still there under Advanced
 - Order-email import: forward a store's order confirmation to a dedicated mailbox and the purchase is recorded with its price protection, no typing
 - Home Assistant sensors (buy-now count, claimable money, every item's price and verdict); see `docs/home-assistant.md`
 - Scan a barcode in a store to add an item with its UPC, for exact matching

@@ -115,7 +115,7 @@ export default function ItemDetail() {
 
   return (
     <div className="space-y-4">
-      <Link to="/" className="text-sm text-slate-500 hover:underline">← Wishlist</Link>
+      <Link to="/" className="text-sm text-slate-500 hover:underline">← Home</Link>
       <div className="card flex flex-col gap-4 md:flex-row">
         {item.image_url && <img src={item.image_url} alt="" className="h-32 w-32 self-center rounded object-contain" />}
         <div className="flex-1 space-y-3">
