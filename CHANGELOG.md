@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.0] - 2026-11-16
+### Changed
+- Simpler app: four tabs (Home, Add, Lists, Me), with a tab bar at the bottom on phones. Home replaces Wishlist and Board: "Buy now" cards, "Waiting for a better price" and "Getting set up", each with one plain sentence. Me holds Bought, Savings, Basket, Settings and, for admins, Household admin. Old links (/board) still work
+- Settings start with "The basics": where you shop, "How eager to buy?" (Patient, Balanced, Eager) and "When should we notify you?" (Only when to buy, Buys and big drops, Everything), notifications on this device, daily summary and quiet hours. Everything else, including your account and API token, is under Advanced
+- New default: forum-thread and flyer matches go to the daily summary instead of a notification ("Only when to buy"); a flyer match with flyer alerts off now lands in the summary instead of being dropped
+
 ## [0.11.0] - 2026-11-16
 ### Added
 - Order-email import: forward order confirmations to a mailbox PriceWatch reads every 10 minutes (IMAP, opt-in). It finds the store, order number and date and your tracked items in the email and records each as a purchase with the store's price-protection terms, then alerts you. Lines it cannot match are listed on the Bought page to link by hand. Each person sets the address they forward from. Optionally Claude Haiku reads the email instead (household setting, off by default; the email text goes to Anthropic)

@@ -166,7 +166,7 @@ async def test_flyers_opt_in_and_matching(client, pages, sent):
                                            "model": "WH-1000XM6", "target_price_cents": 40000}).json()
     db = session_scope()
     assert await flyers.poll(db) == {"enabled": False}  # off by default
-    client.patch("/api/settings", json={"flyers_enabled": True, "postal_code": "K1A 0B1",
+    client.patch("/api/settings", json={"flyers_enabled": True, "postal_code": "K1A 0B1", "alert_flyer": True,
                                         "notify_urls": ["ntfys://ntfy.sh/me"]})
     soon = (datetime.now() + timedelta(days=3)).isoformat()
     pages["/flipp/items/search"] = {"items": [
@@ -238,4 +238,22 @@ async def test_proof_screenshot_added(client, pages, monkeypatch):
     assert cap.screenshot and (folder / "screenshot.png").read_bytes() == b"\x89PNG fake"
     assert "screenshot_sha256" in json.loads((folder / "proof.json").read_text())
     assert await protection.add_screenshots(db, src) == 0
+    db.close()
+
+
+async def test_flyer_match_goes_to_summary_when_flyer_alerts_off(client, pages, sent):
+    from pricewatch.db import session_scope
+    from pricewatch.models import Alert
+    from pricewatch.services import flyers
+
+    client.post("/api/items", json={"name": "Sony WH-1000XM6 Headphones", "brand": "Sony", "model": "WH-1000XM6",
+                                    "target_price_cents": 40000})
+    client.patch("/api/settings", json={"flyers_enabled": True, "postal_code": "K1A 0B1",
+                                        "notify_urls": ["ntfys://ntfy.sh/me"]})  # alert_flyer stays off (default)
+    pages["/flipp/items/search"] = {"items": [{"flyer_item_id": 5, "name": "Sony WH-1000XM6 Wireless Headphones",
+                                               "merchant_name": "Visions", "current_price": 379.99}]}
+    db = session_scope()
+    await flyers.poll(db, force=True)
+    a = db.query(Alert).filter_by(rule_type="flyer").one()
+    assert a.status == "digest" and not [x for x in sent if x.rule_type == "flyer"]
     db.close()

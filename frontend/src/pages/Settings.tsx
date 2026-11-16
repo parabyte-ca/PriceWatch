@@ -56,6 +56,42 @@ interface SettingsData {
   timezone: string;
 }
 
+type Prefs = Partial<SettingsData>;
+
+const EAGER: { key: string; label: string; help: string; values: Prefs }[] = [
+  { key: "patient", label: "Patient", help: "Only at or very near the lowest price this season.", values: { buy_within_pct: 0.5, protect_within_pct: 3 } },
+  { key: "balanced", label: "Balanced", help: "Within 2% of the season's low, or 5% when the store refunds later drops.", values: { buy_within_pct: 2, protect_within_pct: 5 } },
+  { key: "eager", label: "Eager", help: "A good price is good enough; don't risk it selling out.", values: { buy_within_pct: 4, protect_within_pct: 8 } },
+];
+
+const ALERTS: { key: string; label: string; help: string; values: Prefs }[] = [
+  { key: "buy", label: "Only when to buy", help: "When it's time to buy, it's back in stock, or a store owes you money. Everything else waits for the daily summary.",
+    values: { alert_target: true, alert_back_in_stock: true, alert_drop: false, alert_all_time_low: false, alert_deal_feed: false, alert_flyer: false, alert_source_failing: false } },
+  { key: "drops", label: "Buys and big drops", help: "Also new lows, drops of 10% or more, back in stock and deals people are talking about.",
+    values: { alert_target: true, alert_back_in_stock: true, alert_drop: true, alert_drop_pct: 10, alert_all_time_low: true, alert_deal_feed: true, alert_flyer: true, alert_source_failing: false } },
+  { key: "all", label: "Everything", help: "Every change as it happens, including drops of 5% and stores that stop answering.",
+    values: { alert_target: true, alert_back_in_stock: true, alert_drop: true, alert_drop_pct: 5, alert_all_time_low: true, alert_deal_feed: true, alert_flyer: true, alert_source_failing: true } },
+];
+
+const matches = (s: SettingsData, values: Prefs) =>
+  Object.entries(values).every(([k, v]) => (s as unknown as Record<string, unknown>)[k] === v);
+
+function Choice({ options, current, onPick, disabled }: { options: { key: string; label: string; help: string }[]; current: string | null;
+  onPick: (key: string) => void; disabled?: boolean }) {
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-800" role="radiogroup">
+        {options.map((o) => (
+          <button key={o.key} type="button" role="radio" aria-checked={current === o.key} disabled={disabled}
+            className={`min-w-0 rounded-md px-2 py-2 text-sm font-medium ${current === o.key ? "bg-white shadow dark:bg-slate-950" : "text-slate-600 dark:text-slate-300"} disabled:opacity-60`}
+            onClick={() => onPick(o.key)}>{o.label}</button>
+        ))}
+      </div>
+      <p className="text-xs text-slate-500">{options.find((o) => o.key === current)?.help ?? "Custom: set under Advanced below."}</p>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [s, setS] = useState<SettingsData | null>(null);
   const [urls, setUrls] = useState("");
@@ -103,8 +139,44 @@ export default function SettingsPage() {
     </label>
   );
 
+  const eager = EAGER.find((o) => matches(s, o.values))?.key ?? null;
+  const alertsPreset = ALERTS.find((o) => matches(s, o.values))?.key ?? null;
+
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="space-y-4">
+      <div className="card space-y-5">
+        <h2 className="text-lg font-semibold">The basics</h2>
+        <div>
+          <label className="label">Where you shop (for sales tax)</label>
+          <select className="input" value={s.province} onChange={(e) => set("province", e.target.value)}>
+            {Object.entries(s.provinces).map(([code, p]) => (
+              <option key={code} value={code}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="label">How eager to buy?{!s.is_admin && " (set by the household admin)"}</label>
+          <Choice options={EAGER} current={eager} disabled={!s.is_admin}
+            onPick={(k) => setS({ ...s, ...EAGER.find((o) => o.key === k)!.values } as SettingsData)} />
+        </div>
+        <div>
+          <label className="label">When should we notify you?</label>
+          <Choice options={ALERTS} current={alertsPreset}
+            onPick={(k) => setS({ ...s, ...ALERTS.find((o) => o.key === k)!.values } as SettingsData)} />
+        </div>
+        <PushToggle />
+        <div className="space-y-2 border-t border-slate-200 pt-3 dark:border-slate-800">
+          <Toggle k="digest_enabled" label="Daily summary" />
+          <Toggle k="quiet_hours_enabled" label={`Quiet at night (${s.quiet_hours_start} to ${s.quiet_hours_end}); buy alerts still come through`} />
+        </div>
+      </div>
+
+      <details className="group">
+        <summary className="cursor-pointer select-none rounded-lg px-1 py-2 text-sm font-medium text-slate-600 dark:text-slate-300">
+          Advanced settings
+        </summary>
+    <div className="mt-2 grid gap-4 md:grid-cols-2">
+      <Account />
       <div className="card space-y-3">
         <h2 className="font-semibold">Your prices</h2>
         <div>
@@ -252,12 +324,12 @@ export default function SettingsPage() {
           <Toggle k="target_bypasses_quiet_hours" label="Target hits still alert during quiet hours" />
         </div>
         <button className="btn-ghost" onClick={test}>Send test alert</button>
-        <PushToggle />
       </div>
 
-      <Account />
+    </div>
+      </details>
 
-      <div className="md:col-span-2 flex items-center gap-3">
+      <div className="sticky bottom-20 z-10 flex items-center gap-3 rounded-xl border border-slate-200 bg-white/95 p-3 shadow backdrop-blur md:bottom-4 dark:border-slate-800 dark:bg-slate-900/95">
         <button className="btn-primary" onClick={save}>Save settings</button>
         {msg && <span className="text-sm text-green-700">{msg}</span>}
         {error && <span className="text-sm text-red-600">{error}</span>}
