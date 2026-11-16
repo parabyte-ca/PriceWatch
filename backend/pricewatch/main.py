@@ -16,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import __version__, scheduler
 from .api import accounts as accounts_api
 from .api import extra as extra_api
+from .api import homeassistant as ha_api
 from .api import items as items_api
 from .api import perks as perks_api
 from .api import planning as planning_api
@@ -79,6 +80,7 @@ def create_app() -> FastAPI:
     app.include_router(perks_api.router)
     app.include_router(push_api.router)
     app.include_router(planning_api.router)
+    app.include_router(ha_api.router)
 
     @app.get("/healthz")
     def healthz():

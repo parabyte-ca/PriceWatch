@@ -288,6 +288,17 @@ def discovery_providers(db: Session = Depends(get_db),
                           for name in available_providers()]}
 
 
+@router.get("/barcode/{code}")
+async def barcode(code: str, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Likely product names for a scanned barcode; the person picks one before the item is created."""
+    from ..services.discovery import barcode_lookup
+
+    try:
+        return await barcode_lookup(db, code)
+    except DiscoveryError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+
+
 @router.post("/items/{item_id}/discover")
 async def discover_item(item_id: int, body: DiscoverIn | None = None, db: Session = Depends(get_db),
         me: User = Depends(current_user)):

@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { api, Item, money, toCents } from "../api";
+import BarcodeScan from "../components/BarcodeScan";
 import { useSession } from "../session";
 
 interface Preview {
@@ -41,6 +42,7 @@ export default function AddItem() {
   const [manualName, setManualName] = useState("");
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
+  const [gtin, setGtin] = useState("");
 
   useEffect(() => {
     if (shared) runPreview(shared);
@@ -89,7 +91,7 @@ export default function AddItem() {
     try {
       const item = await api<Item>("/api/items", {
         method: "POST",
-        json: { name: manualName, brand: brand || null, model: model || null, target_price_cents: toCents(target), list_id: chosenList },
+        json: { name: manualName, brand: brand || null, model: model || null, gtin: gtin || null, target_price_cents: toCents(target), list_id: chosenList },
       });
       const [providers, settings] = await Promise.all([
         api<{ providers: unknown[] }>("/api/discovery/providers"),
@@ -201,7 +203,12 @@ export default function AddItem() {
           (Settings page) and JSON body <code>{`{"url": Shortcut Input}`}</code>.</p>
       </div>
 
-      <form onSubmit={createByName} className="card space-y-3">
+      <BarcodeScan onPick={(n, b, code) => {
+        setManualName(n); setBrand(b || ""); setGtin(code);
+        document.getElementById("add-by-name")?.scrollIntoView({ behavior: "smooth" });
+      }} />
+
+      <form id="add-by-name" onSubmit={createByName} className="card space-y-3">
         <h2 className="text-lg font-semibold">Add by name</h2>
         <p className="text-sm text-slate-500">
           Creates the item and, when a search provider is configured, looks it up on Google Shopping (Canada). You confirm
@@ -213,6 +220,7 @@ export default function AddItem() {
           <input className="input" placeholder="Model / MPN (optional)" value={model} onChange={(e) => setModel(e.target.value)} />
         </div>
         <input className="input" inputMode="decimal" placeholder="Target price (optional)" value={target} onChange={(e) => setTarget(e.target.value)} />
+        {gtin && <p className="text-xs text-slate-500">Barcode {gtin} will be saved with the item. <button type="button" className="hover:underline" onClick={() => setGtin("")}>remove</button></p>}
         <button className="btn-ghost" disabled={busy}>{busy ? "Working..." : "Create and search"}</button>
       </form>
     </div>

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.0] - 2026-11-16
+### Added
+- Home Assistant REST sensors: `/api/ha/summary` (buy-now count, counts by verdict, claimable money, sale mode, every item) and `/api/ha/items/<id>`, using a personal API token; setup and an example automation in `docs/home-assistant.md`
+- Scan a barcode to add an item (Add page): camera scanning where the browser supports it (Chrome on Android, HTTPS), or type the UPC/EAN; PriceWatch looks it up once (cached) and you pick the product, which is saved with its barcode
+- The optional Claude Haiku check now also screens RedFlagDeals threads and flyer matches that score 80 to 94, before any alert
+
 ## [0.8.0] - 2026-11-16
 ### Added
 - Sale-mode readiness (System page): sale mode on, scheduler, hot items without a store, store links without a good check in 24 h, paused or weak stores, alert delivery for each person, browser sidecar, backup age, disk space, and a dry run of the faster schedule against each store's polite request limit

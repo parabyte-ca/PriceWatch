@@ -99,3 +99,37 @@ async def check(db: Session, spec: ItemSpec, cand: Candidate, asker=None) -> dic
     db.flush()
     return {"same_product": verdict.same_product, "confidence": verdict.confidence, "reason": verdict.reason[:300],
             "model": model, "cached": False}
+
+
+def cached(db: Session, spec: ItemSpec, cand: Candidate) -> dict | None:
+    """A cached answer only (no API call), for synchronous code paths."""
+    model = get_settings().llm_match_model
+    item, listing = _describe(spec, cand)
+    row = db.get(LlmMatchCache, _key(model, item, listing))
+    if row is None:
+        return None
+    return {"same_product": row.same_product, "confidence": row.confidence, "reason": row.reason, "model": row.model,
+            "cached": True}
+
+
+def vetoed(db: Session, spec: ItemSpec, cand: Candidate, result) -> bool:
+    """True when a fuzzy, uncertain match has a cached "not the same product" answer."""
+    if result.method != "fuzzy" or not in_band(result.confidence):
+        return False
+    ans = cached(db, spec, cand)
+    return bool(ans and not ans["same_product"])
+
+
+async def prefetch(db: Session, pairs, limit: int = 20) -> int:
+    """Ask about uncertain (spec, candidate, result) pairs ahead of a synchronous ingest. Returns how many were asked."""
+    if not enabled(db):
+        return 0
+    asked = 0
+    for spec, cand, result in pairs:
+        if asked >= limit:
+            break
+        if result.accepted and result.method == "fuzzy" and in_band(result.confidence) and cached(db, spec, cand) is None:
+            if await check(db, spec, cand) is not None:
+                asked += 1
+    db.commit()
+    return asked
