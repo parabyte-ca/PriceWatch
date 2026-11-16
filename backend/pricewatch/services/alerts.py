@@ -175,14 +175,24 @@ def deliver(db: Session, alert: Alert, cfg: dict | None = None, force: bool = Fa
         db.commit()
         return alert
     urls = settings_store.notify_urls(db, alert.user_id)
-    if not urls:
+    pushed = 0
+    try:
+        from . import webpush
+
+        pushed = webpush.send(db, alert)
+    except Exception:  # noqa: BLE001
+        log.exception("web push error")
+    if not urls and not pushed:
         alert.status = "logged"
-        alert.error = "No notification URLs configured"
+        alert.error = "No notification URLs or app notifications set up"
     else:
-        try:
-            ok, err = send_all(urls, alert)
-        except Exception as exc:  # noqa: BLE001
-            ok, err = False, f"{type(exc).__name__}: {exc}"
+        ok, err = bool(pushed), None
+        if urls:
+            try:
+                sent_ok, err = send_all(urls, alert)
+                ok = ok or sent_ok
+            except Exception as exc:  # noqa: BLE001
+                err = f"{type(exc).__name__}: {exc}"
         alert.status = "sent" if ok else "failed"
         alert.error = err
         if ok:

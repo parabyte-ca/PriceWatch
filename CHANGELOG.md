@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0] - 2026-11-16
+### Added
+- App notifications (Web Push) on each device from the installed app, with Open deal and Snooze 7 days buttons; Settings, "Notifications on this device". Needs HTTPS; on iPhone/iPad the app must be added to the home screen (iOS 16.4+). VAPID keys are created once in the data folder
+- Savings page: spent, saved against the 60-day typical price when you bought, claimed back and still to claim; by person and by list
+- Gift lists: occasion, recipient, date and budget per list, with spent vs remaining on the Lists page
+- Cash back, gift card and card perks per store (System page, entered by hand): item pages show the best offer "after perks"
+- RedFlagDeals comment summary for matched threads (every 2 hours while under 7 days old): all-time-low and wait signals, price-match reports, stock and expiry, lowest quoted price, coupon codes, and a note when the crowd disagrees with PriceWatch's own history. No usernames or post text are stored
+- Weekly flyer matching (opt-in, off by default): one Flipp search per item per day near your postal code; matches are hints, alert instantly at or under target, otherwise in the digest
+- Proof packages now include a full-page browser screenshot (with its SHA-256) when the browser sidecar is on
+- System page, "Test a product page": robots.txt, status, bot challenge, JSON-LD types and parsed price over HTTP and optionally the browser; saves a cleaned fixture to `data/fixtures/` for new parsers
+- Best Buy product JSON fetch mode (beta, opt-in on the System page for bestbuy.ca); falls back to the product page if it does not answer
+
+### Changed
+- Canadian Tire defaults to browser mode with 45 s spacing (prices are rendered by script); existing installs still on "auto" are switched
+- Alerts count as sent when either an app notification or an Apprise URL accepts them
+- Database migration 0006
+
 ## [0.6.1] - 2026-11-16
 ### Fixed
 - Phone layout: the menu is one sideways-scrolling row (it overflowed and stretched the active tab), and the user name and Sign out moved to the top bar

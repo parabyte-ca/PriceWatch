@@ -10,6 +10,7 @@ from ..models import Item, Observation, PricePolicy, SourceLink, UserItemPref
 from ..pricing import effective_shipping, landed_price
 from ..timeutil import utcnow
 from . import events, settings_store
+from .perks import active_perks, after_perks
 from .policies import events_excluded_today, protection
 from .stats import Point, decide, fake_sale, history_confidence, low_since, median_since, window_low
 
@@ -94,6 +95,9 @@ def summarize_items(db: Session, items: list[Item], user_id: int | None = None) 
             best = {"source_id": src.id, "url": src.url, "retailer": src.retailer.name if src.retailer else src.title,
                     "domain": src.retailer.domain if src.retailer else None, "landed": landed,
                     "was_price_cents": src.last_was_price_cents, "channel": src.channel}
+            perks = active_perks(db, best["domain"])
+            if perks:
+                best.update(after_perks(landed["landed_cents"], perks))
 
         best_points = by_source.get(best["source_id"], []) if best else []
         current = best["landed"]["landed_cents"] if best else None

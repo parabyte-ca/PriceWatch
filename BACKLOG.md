@@ -22,12 +22,17 @@ Items not yet scheduled into a phase. Newest first.
 1. DONE in v0.5.0. Purchases and price-protection tracker: per purchase store retailer, price, date, channel; keep watching and
    alert when a claimable drop occurs (Costco 30 days; Best Buy event guarantee on badged items; Staples 30/14 days
    excluding event pricing). Highest value; ship by Nov 22 so early buys are protected.
-2. DONE in v0.5.0 (HTML snapshot; screenshot not yet). Proof package: full-page screenshot, URL, UTC and local timestamps, parsed price, seller, page hash, zipped.
-3. DONE in v0.5.0 (feed matching and de-duplication). Comment aggregation (below) is still open.
-4. Gift lists per person and occasion with budget caps and spent vs remaining.
-5. Cash-back and gift card stacking notes per retailer (manual table; do not scrape Rakuten).
-6. Retailer JSON adapters (Best Buy province pricing, Canadian Tire / Sport Chek store pricing) once fixtures are
+2. DONE in v0.5.0; screenshot added in v0.7.0. Proof package: full-page screenshot, URL, UTC and local timestamps, parsed price, seller, page hash, zipped.
+3. DONE in v0.5.0 (feed matching and de-duplication); comment summary DONE in v0.7.0.
+4. DONE in v0.7.0. Gift lists per person and occasion with budget caps and spent vs remaining.
+5. DONE in v0.7.0. Cash-back and gift card stacking notes per retailer (manual table; do not scrape Rakuten).
+6. PARTLY DONE in v0.7.0 (Best Buy product JSON beta, Canadian Tire browser default, page test tool with fixture capture). Still to do: run the page test on TrueNAS against real pages and add parsers from the fixtures. Retailer JSON adapters (Best Buy province pricing, Canadian Tire / Sport Chek store pricing) once fixtures are
    captured on TrueNAS; Costco and Walmart browser adapters with channel labels.
+
+## Feature ideas (2026-11-16)
+
+Done in v0.7.0: Web Push, spend and savings dashboard, weekly flyer matching. Still open: Home Assistant sensors,
+barcode scan to add, price-drop forecasting from history, basket optimiser, Boxing Week mode.
 
 ## Phase 4 (after Cyber Monday)
 
@@ -36,7 +41,7 @@ email-forward ingestion, Home Assistant sensors, weekly report with a Claude sum
 (Dec 26 to 31), basket optimiser for free-shipping thresholds. Re-read Visualping's 2026 results (published
 Nov 27) and adjust the buy thresholds.
 
-## RedFlagDeals intelligence (requested 2026-11-15, target: Phase 3, v0.3.0)
+## RedFlagDeals intelligence (requested 2026-11-15) - DONE in v0.5.0 and v0.7.0 (rule-based; optional LLM summary not built)
 
 Read redflagdeals.com Hot Deals threads and use them as hints and crowd context,
 never as price truth.

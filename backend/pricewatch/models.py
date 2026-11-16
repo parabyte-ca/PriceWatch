@@ -40,6 +40,10 @@ class WishList(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
     owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    occasion: Mapped[str | None] = mapped_column(String(120))
+    recipient: Mapped[str | None] = mapped_column(String(120))
+    event_date: Mapped[date | None] = mapped_column(Date)
+    budget_cents: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     members: Mapped[list["ListMember"]] = relationship(back_populates="list", cascade="all, delete-orphan")
@@ -328,6 +332,8 @@ class Purchase(Base):
     lowest_seen_at: Mapped[datetime | None] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(20), default="watching")  # watching|claimable|claimed|expired|closed
     claimed_cents: Mapped[int | None] = mapped_column(Integer)
+    reference_cents: Mapped[int | None] = mapped_column(Integer)  # 60-day median price when bought (for savings)
+    reference_basis: Mapped[str | None] = mapped_column(String(60))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
@@ -345,6 +351,7 @@ class ProofCapture(Base):
     seller: Mapped[str | None] = mapped_column(String(200))
     page_sha256: Mapped[str | None] = mapped_column(String(64))
     path: Mapped[str | None] = mapped_column(String(500))  # folder under data/artifacts
+    screenshot: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class DealFeedEntry(Base):
@@ -362,4 +369,57 @@ class DealFeedEntry(Base):
     deal_url: Mapped[str | None] = mapped_column(String(2000))
     matched_source_id: Mapped[int | None] = mapped_column(ForeignKey("source_links.id", ondelete="SET NULL"))
     price_cents: Mapped[int | None] = mapped_column(Integer)
+    summary: Mapped[dict | None] = mapped_column(JSON)  # crowd signals from the thread's comments
+    summary_checked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class RetailerPerk(Base):
+    """Cash-back portals, discounted gift cards and card offers that stack on a store's price (entered by hand)."""
+
+    __tablename__ = "retailer_perks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    retailer_domain: Mapped[str] = mapped_column(String(200), index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # cashback | giftcard | card | other
+    label: Mapped[str] = mapped_column(String(120))
+    percent: Mapped[float | None] = mapped_column(Float)
+    notes: Mapped[str | None] = mapped_column(Text)
+    url: Mapped[str | None] = mapped_column(String(500))
+    valid_until: Mapped[date | None] = mapped_column(Date)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(1000), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    user_agent: Mapped[str | None] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime)
+    failures: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class FlyerMatch(Base):
+    """A flyer (weekly ad) item matched to a wishlist item. Hints only, like forum threads."""
+
+    __tablename__ = "flyer_matches"
+    __table_args__ = (UniqueConstraint("item_id", "flyer_item_id", name="uq_flyer_item"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    item_id: Mapped[int] = mapped_column(ForeignKey("items.id", ondelete="CASCADE"), index=True)
+    flyer_item_id: Mapped[str] = mapped_column(String(100))
+    merchant: Mapped[str] = mapped_column(String(200))
+    title: Mapped[str] = mapped_column(String(500))
+    price_cents: Mapped[int | None] = mapped_column(Integer)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime)
+    postal_code: Mapped[str | None] = mapped_column(String(10))
+    score: Mapped[float | None] = mapped_column(Float)
+    url: Mapped[str | None] = mapped_column(String(1000))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

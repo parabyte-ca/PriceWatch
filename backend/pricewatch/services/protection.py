@@ -140,3 +140,38 @@ def proof_zip(db: Session, purchase: Purchase) -> bytes:
                 for f in folder.iterdir():
                     z.write(f, f"{folder.name}/{f.name}")
     return buf.getvalue()
+
+
+async def add_screenshots(db: Session, src: SourceLink) -> int:
+    """Best effort: add a browser screenshot to proof captured in the last few minutes for this source's purchases."""
+    from ..fetch import browser
+    from . import runtime
+
+    s = get_settings()
+    if not s.browser_enabled:
+        return 0
+    since = utcnow() - timedelta(minutes=10)
+    caps = db.scalars(select(ProofCapture).where(ProofCapture.url == src.url, ProofCapture.screenshot.is_(False),
+                                                 ProofCapture.captured_at >= since)).all()
+    done = 0
+    for cap in caps:
+        folder = s.data_dir / cap.path if cap.path else None
+        if folder is None:
+            continue
+        try:
+            domain = src.retailer.domain if src.retailer else ""
+            async with runtime.browser_lock(domain):
+                png = await browser.screenshot(src.url, s.browser_ws, s.browser_timeout, runtime.get_fetcher().user_agent)
+            (folder / "screenshot.png").write_bytes(png)
+            meta = folder / "proof.json"
+            if meta.is_file():
+                data = json.loads(meta.read_text())
+                data["screenshot_sha256"] = hashlib.sha256(png).hexdigest()
+                data["screenshot_taken_utc"] = utcnow().isoformat() + "Z"
+                meta.write_text(json.dumps(data, indent=2))
+            cap.screenshot = True
+            done += 1
+        except Exception:  # noqa: BLE001
+            log.warning("proof screenshot failed", extra={"url": src.url})
+    db.commit()
+    return done

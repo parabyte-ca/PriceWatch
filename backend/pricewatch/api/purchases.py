@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from ..auth import current_user
 from ..db import get_db
 from ..models import Item, ProofCapture, Purchase, SourceLink, User
-from ..services import events, protection, settings_store
+from ..services import events, protection, savings, settings_store
 from .items import _load_item
 
 router = APIRouter(prefix="/api", tags=["purchases"])
@@ -53,6 +53,9 @@ def _out(db: Session, p: Purchase) -> dict:
         "lowest_seen_cents": p.lowest_seen_cents,
         "claimable_cents": (p.price_cents - p.lowest_seen_cents) if p.lowest_seen_cents is not None else None,
         "claimed_cents": p.claimed_cents, "proof_count": len(proofs),
+        "reference_cents": p.reference_cents,
+        "saved_vs_median_cents": max(0, p.reference_cents - p.price_cents) if p.reference_cents else None,
+        "screenshots": sum(1 for c in proofs if c.screenshot),
     }
 
 
@@ -101,7 +104,9 @@ def record_purchase(item_id: int, body: PurchaseIn, db: Session = Depends(get_db
         days = body.protection_days
         until = bought + timedelta(days=days) if days else None
         basis = f"{days}-day protection (entered by you)" if days else None
-    p = Purchase(item_id=item.id, user_id=me.id, source_link_id=src.id if src else None, retailer_domain=domain,
+    ref, ref_basis = savings.reference_price(db, item.id)
+    p = Purchase(reference_cents=ref, reference_basis=ref_basis, item_id=item.id, user_id=me.id,
+                 source_link_id=src.id if src else None, retailer_domain=domain,
                  retailer_name=name, channel=body.channel if not src else (src.channel or body.channel),
                  price_cents=body.price_cents, shipping_cents=body.shipping_cents, purchased_on=bought,
                  protection_days=days, protection_until=until, protection_basis=basis, badged=body.badged,
@@ -152,5 +157,22 @@ def item_deals(item_id: int, db: Session = Depends(get_db), me: User = Depends(c
     rows = db.scalars(select(DealFeedEntry).where(DealFeedEntry.matched_item_id == item_id)
                       .order_by(DealFeedEntry.created_at.desc()).limit(20)).all()
     return [{"title": r.title, "url": r.url, "price_cents": r.price_cents, "retailer_domain": r.retailer_domain,
-             "tracked_source_id": r.matched_source_id, "score": r.match_score,
+             "tracked_source_id": r.matched_source_id, "score": r.match_score, "summary": r.summary,
              "published_at": r.published_at.isoformat() + "Z" if r.published_at else None} for r in rows]
+
+
+@router.get("/items/{item_id}/flyers")
+def item_flyers(item_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Weekly flyer matches (opt-in; Flipp search near the household postal code)."""
+    from ..services import flyers
+
+    _load_item(db, item_id, me)
+    return flyers.for_item(db, item_id)
+
+
+@router.get("/savings")
+def savings_summary(db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Spend and savings: your purchases, plus every purchase on lists you belong to."""
+    from ..services.users import list_ids
+
+    return savings.summary(db, [me.id], list_ids(db, me))

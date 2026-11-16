@@ -15,6 +15,12 @@ export interface ListInfo {
   items: number;
   shared: boolean;
   members: { user_id: number; display_name: string; role: string }[];
+  occasion: string | null;
+  recipient: string | null;
+  event_date: string | null;
+  budget_cents: number | null;
+  spent_cents: number;
+  remaining_cents: number | null;
 }
 
 export interface Session {
