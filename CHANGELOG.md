@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.0] - 2026-11-16
+### Security
+- PriceWatch no longer fetches addresses on your own network. Store links, previews, list imports, the page test, the browser (every navigation and every request a page makes) and redirects must be public http(s) addresses: private, loopback, link-local and carrier-grade ranges, `localhost`, `.local`/`.lan`/single-label names, and names that resolve to them are refused. Before, anyone signed in could make the server read the router or TrueNAS pages. `PRICEWATCH_ALLOW_PRIVATE_URLS=true` turns this off (the smoke test's fixture server uses it)
+- Web-push subscriptions must point at a public push service; household members (not admins) can't send notifications to a home-network address
+- Security headers on every response (Content-Security-Policy, X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy) and `Cache-Control: no-store` on the API
+
+### Added
+- Edit an item's name, brand, model number and barcode, and move it to another list, on its page
+- Price-match helper: "Show at the till" opens a full-screen card with the competitor's price, when and where it was seen, a button to open the live page, and the store's policy and caveats
+- Family link for a list: a read-only page anyone with the link can open without an account (items, current best price and store link, optionally what's already bought). Never budgets, prices paid, notes or names. Turn it off any time. Migration 0009
+
 ## [0.12.0] - 2026-11-16
 ### Changed
 - Simpler app: four tabs (Home, Add, Lists, Me), with a tab bar at the bottom on phones. Home replaces Wishlist and Board: "Buy now" cards, "Waiting for a better price" and "Getting set up", each with one plain sentence. Me holds Bought, Savings, Basket, Settings and, for admins, Household admin. Old links (/board) still work

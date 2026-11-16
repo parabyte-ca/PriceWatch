@@ -20,6 +20,25 @@ async def settle(page, url: str, timeout: float) -> None:
     for a price element (or the deadline), then briefly for the network, and return whatever has rendered instead of
     failing.
     """
+    from .. import netguard
+
+    await netguard.acheck(url)
+
+    async def guard(route):
+        # every request the page makes: no private hosts (an image or script pointing at the home network), and a
+        # full DNS check for each navigation (redirects included)
+        req_url = route.request.url
+        try:
+            if netguard.static_reason(req_url) and not req_url.startswith(("data:", "blob:")):
+                raise netguard.BlockedURL(netguard.static_reason(req_url) or "")
+            if route.request.is_navigation_request():
+                await netguard.acheck(req_url)
+        except netguard.BlockedURL:
+            await route.abort("blockedbyclient")
+            return
+        await route.continue_()
+
+    await page.route("**/*", guard)
     deadline = time.monotonic() + timeout
     await page.goto(url, wait_until="commit", timeout=timeout * 1000)
 

@@ -152,7 +152,10 @@ def _list_out(db: Session, lst: WishList, me: User) -> dict:
             "event_date": lst.event_date.isoformat() if lst.event_date else None,
             "budget_cents": lst.budget_cents, "spent_cents": spent,
             "remaining_cents": (lst.budget_cents - spent) if lst.budget_cents is not None else None,
-            "members": [{"user_id": u.id, "display_name": u.display_name, "role": m.role} for m, u in members]}
+            "members": [{"user_id": u.id, "display_name": u.display_name, "role": m.role} for m, u in members],
+            # the link itself only for members who can edit; viewers just see that it exists
+            "share_link": (f"/shared/{lst.share_token}" if lst.share_token and my_role in ("owner", "editor") else None),
+            "share_on": bool(lst.share_token), "share_show_bought": lst.share_show_bought}
 
 
 @router.get("/lists")
@@ -180,6 +183,61 @@ def rename_list(list_id: int, body: ListUpdate, me: User = Depends(current_user)
         setattr(lst, k, v.strip() if isinstance(v, str) else v)
     db.commit()
     return _list_out(db, lst, me)
+
+
+class ShareIn(BaseModel):
+    show_bought: bool = True
+
+
+@router.post("/lists/{list_id}/share")
+def share_list(list_id: int, body: ShareIn | None = None, me: User = Depends(current_user),
+               db: Session = Depends(get_db)):
+    """Turn on (or change) the read-only family link. A new link replaces the old one only via DELETE then POST."""
+    import secrets
+
+    lst = _list_or_404(db, list_id)
+    if users_svc.role_in(db, me, list_id) != "owner":
+        raise HTTPException(403, "Only the list owner can share it")
+    lst.share_token = lst.share_token or secrets.token_urlsafe(18)
+    lst.share_show_bought = (body or ShareIn()).show_bought
+    db.commit()
+    return _list_out(db, lst, me)
+
+
+@router.delete("/lists/{list_id}/share")
+def unshare_list(list_id: int, me: User = Depends(current_user), db: Session = Depends(get_db)):
+    lst = _list_or_404(db, list_id)
+    if users_svc.role_in(db, me, list_id) != "owner":
+        raise HTTPException(403, "Only the list owner can stop sharing it")
+    lst.share_token = None
+    db.commit()
+    return _list_out(db, lst, me)
+
+
+@router.get("/shared/{token}")
+def shared_list(token: str, db: Session = Depends(get_db)):
+    """Public, read-only view of a shared list: what to get and where it is cheapest. No prices paid, budgets,
+    notes, names of people or purchase details."""
+    from ..models import Purchase
+    from ..services.summary import summarize_items
+
+    lst = db.scalar(select(WishList).where(WishList.share_token == token)) if 8 <= len(token) <= 64 else None
+    if lst is None:
+        raise HTTPException(404, "This link is not shared any more")
+    items = list(db.scalars(select(Item).where(Item.list_id == lst.id).order_by(Item.priority, Item.name)).all())
+    sums = summarize_items(db, items, lst.owner_id)
+    bought = set(db.scalars(select(Purchase.item_id).where(Purchase.item_id.in_([i.id for i in items] or [-1])))) \
+        if lst.share_show_bought else set()
+    out = []
+    for i in items:
+        if not i.active and i.id not in bought:
+            continue
+        best = sums[i.id]["best"] or {}
+        out.append({"name": i.name, "image_url": i.image_url, "brand": i.brand, "target_cents": i.target_price_cents,
+                    "price_cents": sums[i.id]["best_price_cents"], "store": best.get("retailer"), "url": best.get("url"),
+                    "good_price": sums[i.id]["decision"] in ("BUY", "BUY_AND_PROTECT"), "bought": i.id in bought})
+    return {"name": lst.name, "occasion": lst.occasion, "recipient": lst.recipient,
+            "event_date": lst.event_date.isoformat() if lst.event_date else None, "items": out}
 
 
 @router.delete("/lists/{list_id}", status_code=204)

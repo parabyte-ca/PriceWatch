@@ -166,6 +166,7 @@ def delete_item(item_id: int, db: Session = Depends(get_db),
 async def preview(body: UrlIn, db: Session = Depends(get_db),
         me: User = Depends(current_user)):
     url = str(body.url)
+    _public_or_422(url)
     retailer = get_or_create_retailer(db, url)
     db.commit()
     if retailer.fetch_mode == "keepa":
@@ -206,9 +207,22 @@ async def _keepa_preview(url: str, retailer) -> dict:
         "seller": "Amazon.ca" if p.amazon_price_cents else "buy box (may be a marketplace seller)"}}
 
 
+def _public_or_422(url: str) -> None:
+    """Refuse addresses on the home network before anything is saved (see netguard)."""
+    from .. import netguard
+
+    try:
+        netguard.check(url)
+    except netguard.BlockedURL as exc:
+        raise HTTPException(422,
+                            f"PriceWatch only watches public store pages: {exc}") from exc
+
+
 def _add_source(db: Session, item: Item, url: str, fetch_mode: str | None = None,
                 status_: str = "confirmed", method: str = "manual") -> SourceLink:
     url = normalize_url(url)
+    if not url.startswith("manual://"):
+        _public_or_422(url)
     retailer = get_or_create_retailer(db, url)
     src = SourceLink(item_id=item.id, retailer_id=retailer.id, url=url, status=status_, fetch_mode=fetch_mode,
                      match_method=method, match_confidence=1.0 if method == "manual" else None)
@@ -238,6 +252,7 @@ async def create_item_from_url(db: Session, raw_url: str, *, name: str | None = 
     """Create an item with one source. Fetches immediately (cached from preview) unless fetch_now is False,
     in which case the first scheduled check fills in the details (autofill)."""
     url = normalize_url(raw_url)
+    _public_or_422(url)
     retailer = get_or_create_retailer(db, url)
     db.commit()
     mode = retailer.fetch_mode

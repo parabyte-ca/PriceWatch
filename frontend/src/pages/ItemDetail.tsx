@@ -4,6 +4,8 @@ import { CartesianGrid, Legend, Line, LineChart, ReferenceLine, ResponsiveContai
 import { ago, api, EXCLUSIONS, Item, localTime, money, toCents, toDollars } from "../api";
 import Badge, { Confidence } from "../components/Badge";
 import { Suggestions } from "../components/Discovery";
+import PriceMatchView from "../components/PriceMatch";
+import { useSession } from "../session";
 import { BoughtForm, DealThreads, FlyerMatches, Forecast, PurchaseCard, PurchaseInfo } from "../components/Purchase";
 
 interface Series {
@@ -33,7 +35,11 @@ export default function ItemDetail() {
   const [series, setSeries] = useState<Series[]>([]);
   const [error, setError] = useState("");
   const [msg, setMsg] = useState("");
-  const [form, setForm] = useState({ target: "", max: "", hot: false, priority: 3, notes: "", amazon: "", query: "" });
+  const { lists } = useSession();
+  const [showMatch, setShowMatch] = useState<number | null>(null);
+  const writable = lists.filter((l) => l.role !== "viewer");
+  const [form, setForm] = useState({ name: "", brand: "", model: "", gtin: "", list: "", target: "", max: "", hot: false,
+    priority: 3, notes: "", amazon: "", query: "" });
   const [rules, setRules] = useState<Record<string, boolean>>({});
   const [cdEnabled, setCdEnabled] = useState(false);
   const [buying, setBuying] = useState(false);
@@ -57,6 +63,7 @@ export default function ItemDetail() {
       setItem(it);
       setSeries(h.series);
       setForm({
+        name: it.name, brand: it.brand || "", model: it.model || "", gtin: it.gtin || "", list: it.list_id ? String(it.list_id) : "",
         target: toDollars(it.target_price_cents), max: toDollars(it.max_price_cents), hot: it.hot,
         priority: it.priority, notes: it.notes || "", amazon: it.amazon_history_note || "", query: it.search_query || "",
       });
@@ -100,7 +107,12 @@ export default function ItemDetail() {
 
   const saveEdits = (e: FormEvent) => {
     e.preventDefault();
+    const gtin = form.gtin.replace(/\D/g, "");
+    if (!form.name.trim()) return setError("The item needs a name");
+    if (gtin && (gtin.length < 8 || gtin.length > 14)) return setError("A barcode has 8 to 14 digits");
     run(() => api(`/api/items/${id}`, { method: "PATCH", json: {
+      name: form.name.trim(), brand: form.brand.trim() || null, model: form.model.trim() || null, gtin: gtin || null,
+      ...(form.list && form.list !== String(item?.list_id) ? { list_id: Number(form.list) } : {}),
       target_price_cents: toCents(form.target), max_price_cents: toCents(form.max), hot: form.hot,
       priority: form.priority, notes: form.notes || null, amazon_history_note: form.amazon || null,
       search_query: form.query || null, ...rules,
@@ -159,8 +171,12 @@ export default function ItemDetail() {
               Price match: ask <b>{o.at}</b> to match <a className="underline" href={o.match_url} target="_blank" rel="noreferrer">{o.match_to}</a> at {money(o.price_cents)} (save {money(o.saving_cents)} before tax).
               {o.caveats.map((c) => <div key={c} className="text-xs text-amber-800">{c}</div>)}
               {o.policy_notes && <div className="text-xs opacity-80">{o.policy_notes}</div>}
+              <button className="btn-primary mt-2 px-3 py-1.5" onClick={() => setShowMatch(o.at_source_id)}>Show at the till</button>
             </div>
           ))}
+          {showMatch != null && s.price_match.find((o) => o.at_source_id === showMatch) && (
+            <PriceMatchView item={item} o={s.price_match.find((o) => o.at_source_id === showMatch)!} onClose={() => setShowMatch(null)} />
+          )}
           <div className="flex flex-wrap gap-2">
             <button className="btn-ghost" onClick={() => run(() => api(`/api/items/${id}/check`, { method: "POST" }), "Checks queued; refresh in a minute")}>
               Check all now
@@ -332,7 +348,29 @@ export default function ItemDetail() {
       <Suggestions item={item} onChange={load} />
 
       <form className="card grid gap-3 md:grid-cols-3" onSubmit={saveEdits}>
-        <h2 className="font-semibold md:col-span-3">Settings for this item</h2>
+        <h2 className="font-semibold md:col-span-3">Edit this item</h2>
+        <div className="md:col-span-2">
+          <label className="label">Name</label>
+          <input className="input" required maxLength={300} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        </div>
+        <div>
+          <label className="label">List</label>
+          <select className="input" value={form.list} onChange={(e) => setForm({ ...form, list: e.target.value })}>
+            {writable.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="label">Brand</label>
+          <input className="input" value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} />
+        </div>
+        <div>
+          <label className="label">Model number</label>
+          <input className="input" value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} />
+        </div>
+        <div>
+          <label className="label">Barcode (UPC/EAN)</label>
+          <input className="input font-mono" inputMode="numeric" value={form.gtin} onChange={(e) => setForm({ ...form, gtin: e.target.value })} />
+        </div>
         <div>
           <label className="label">Target price (before tax)</label>
           <input className="input" inputMode="decimal" autoFocus={urlAction === "target"} value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} />
@@ -375,7 +413,7 @@ export default function ItemDetail() {
           <label className="label">Search query (optional, overrides brand + name + model)</label>
           <input className="input" value={form.query} onChange={(e) => setForm({ ...form, query: e.target.value })} />
         </div>
-        <div className="md:col-span-3">
+        <div className="flex flex-wrap items-center gap-3 md:col-span-3">
           <button className="btn-primary">Save</button>
         </div>
       </form>

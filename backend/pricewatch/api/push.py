@@ -42,6 +42,12 @@ def devices(db: Session = Depends(get_db), me: User = Depends(current_user)):
 
 @router.post("/subscribe", status_code=201)
 def subscribe(body: SubscriptionIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    from .. import netguard
+
+    try:
+        netguard.check(body.endpoint)  # the server POSTs to this address: never a private one
+    except netguard.BlockedURL as exc:
+        raise HTTPException(422, f"Not a push service address: {exc}") from exc
     sub = db.scalar(select(PushSubscription).where(PushSubscription.endpoint == body.endpoint))
     if sub is None:
         sub = PushSubscription(endpoint=body.endpoint)

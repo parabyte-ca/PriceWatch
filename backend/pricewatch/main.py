@@ -38,6 +38,10 @@ from .services.retailers import seed_retailers
 from .timeutil import utcnow
 
 log = logging.getLogger(__name__)
+# Product images come from store CDNs (https); everything else is served by PriceWatch itself.
+CSP = ("default-src 'self'; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline'; "
+       "script-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; media-src 'self' blob:; "
+       "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 STATIC_DIR = Path(os.environ.get("PRICEWATCH_STATIC_DIR", Path(__file__).resolve().parent / "static"))
 
 
@@ -69,6 +73,19 @@ def create_app() -> FastAPI:
     app = FastAPI(title="PriceWatch CA", version=__version__, lifespan=lifespan,
                   docs_url="/api/docs", openapi_url="/api/openapi.json", redoc_url=None)
     app.add_middleware(AuthMiddleware)
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        h = response.headers
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("Referrer-Policy", "same-origin")
+        h.setdefault("X-Frame-Options", "DENY")
+        h.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+        h.setdefault("Content-Security-Policy", CSP)
+        if request.url.path.startswith("/api/"):
+            h.setdefault("Cache-Control", "no-store")
+        return response
     app.add_middleware(SessionMiddleware, secret_key=load_secret_key(s), session_cookie="pricewatch_session",
                        max_age=60 * 60 * 24 * 30, same_site="lax", https_only=s.cookie_secure)
     app.include_router(auth_router)

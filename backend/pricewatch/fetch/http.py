@@ -11,7 +11,7 @@ from urllib.robotparser import RobotFileParser
 
 import httpx
 
-from .. import __version__
+from .. import __version__, netguard
 
 log = logging.getLogger(__name__)
 
@@ -88,6 +88,7 @@ class PoliteFetcher:
             timeout=timeout,
             follow_redirects=True,
             transport=transport,
+            event_hooks={"request": [netguard.httpx_hook]},
             headers={
                 "User-Agent": user_agent,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -158,6 +159,10 @@ class PoliteFetcher:
             if hit and time.monotonic() - hit[0] < CACHE_TTL:
                 res = hit[1]
                 return FetchResult(**{**vars(res), "from_cache": True})
+        try:
+            await netguard.acheck(url)
+        except netguard.BlockedURL as exc:
+            return FetchResult(url=url, outcome="error", error=f"Not fetched: {exc}")
         domain = domain_of(url)
         async with self._lock(domain):
             if respect_robots and not await self.allowed(url):
