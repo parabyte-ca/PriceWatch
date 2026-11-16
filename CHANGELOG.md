@@ -5,6 +5,8 @@
 - Home Assistant REST sensors: `/api/ha/summary` (buy-now count, counts by verdict, claimable money, sale mode, every item) and `/api/ha/items/<id>`, using a personal API token; setup and an example automation in `docs/home-assistant.md`
 - Scan a barcode to add an item (Add page): camera scanning where the browser supports it (Chrome on Android, HTTPS), or type the UPC/EAN; PriceWatch looks it up once (cached) and you pick the product, which is saved with its barcode
 - The optional Claude Haiku check now also screens RedFlagDeals threads and flyer matches that score 80 to 94, before any alert
+- "Will it get cheaper?" on each item: a low, medium or high chance of a lower price soon, a likely low, and the reasons (drops seen, price against its usual level, two-week trend, next sale event); needs 10 days of prices
+- Weekly report, Sunday 18:00 (each person can turn it off): what to buy, what moved, what you bought and saved, money to claim; with the Claude check set up, Claude Haiku adds a two or three sentence summary on top
 
 ## [0.8.0] - 2026-11-16
 ### Added

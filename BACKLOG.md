@@ -34,8 +34,8 @@ Items not yet scheduled into a phase. Newest first.
 Done in v0.7.0: Web Push, spend and savings dashboard, weekly flyer matching. Done in v0.8.0: Black Friday
 hardening (readiness, load dry run, pre-event backup, stale flags), basket optimiser, Boxing Week mode, Claude Haiku
 match check (discovery only). Done in v0.9.0: Home Assistant sensors, barcode scan
-to add, Claude check for the deal feed and flyers. Still open: price-drop forecasting, weekly report with a Claude
-summary, email-forward ingestion.
+to add, Claude check for the deal feed and flyers. Also in v0.9.0: price-drop estimate, weekly report with an optional Claude
+summary. Still open: email-forward ingestion (needs an IMAP mailbox), Visualping 2026 review (after Nov 27).
 
 ## Phase 4 (after Cyber Monday)
 

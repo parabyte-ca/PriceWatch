@@ -76,6 +76,9 @@ async def housekeeping() -> None:
         alerts.flush_deferred(db)
         alerts.check_failing_sources(db)
         alerts.maybe_send_digest(db)
+        from .services import weekly
+
+        weekly.maybe_send(db)
         protection.expire(db)
     except Exception:  # noqa: BLE001
         log.exception("housekeeping failed")

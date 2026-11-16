@@ -50,6 +50,7 @@ DEFAULTS: dict = {
     "flyers_enabled": False,
     "postal_code": "",
     "alert_flyer": True,
+    "weekly_report_enabled": True,
 }
 
 SECRET_KEYS = {"notify_urls"}
@@ -60,7 +61,7 @@ USER_KEYS = {
     "target_bypasses_quiet_hours", "notify_urls", "alert_target", "alert_drop", "alert_drop_pct",
     "alert_all_time_low", "alert_back_in_stock", "alert_source_failing", "alert_domain_blocked",
     "digest_enabled", "digest_time", "digest_time_blackfriday", "my_best_buy_member", "alert_deal_feed",
-    "alert_flyer",
+    "alert_flyer", "weekly_report_enabled",
 }
 
 
