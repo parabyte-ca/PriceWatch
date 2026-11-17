@@ -10,6 +10,17 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
   const [status, setStatusInfo] = useState<{ searching: boolean; provider: string | null } | null>(null);
   const [offers, setOffers] = useState<Offer[] | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [terms, setTerms] = useState<string | null>(null);
+  const saveTerms = async () => {
+    if (terms == null) return;
+    setError("");
+    try {
+      await api(`/api/items/${item.id}`, { method: "PATCH", json: { search_query: terms.trim() || null } });
+      setTerms(null);
+      await api(`/api/items/${item.id}/discover`, { method: "POST", json: { force: true } }).catch(() => {});
+      onChange(); loadOffers();
+    } catch (e) { setError((e as Error).message); }
+  };
   const storeOffers = (offers || []).filter((o) => o.kind === "store");
   const otherOffers = (offers || []).filter((o) => o.kind !== "store");
   const loadOffers = () => api<Offer[]>(`/api/items/${item.id}/offers`).then(setOffers).catch(() => setOffers([]));
@@ -77,6 +88,20 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
           </button>
         )}
       </div>
+      {item.search_terms && (terms == null ? (
+        <div className="flex flex-wrap items-center gap-x-2 text-xs text-slate-500">
+          <span>Searching for <span className="font-medium text-slate-700 dark:text-slate-300">"{item.search_terms}"</span></span>
+          <button className="text-red-700 hover:underline dark:text-red-400" onClick={() => setTerms(item.search_query || item.search_terms || "")}>Change</button>
+        </div>
+      ) : (
+        <form className="flex flex-wrap gap-2" onSubmit={(e) => { e.preventDefault(); void saveTerms(); }}>
+          <input className="input flex-1 py-1 text-sm" value={terms} onChange={(e) => setTerms(e.target.value)} autoFocus
+            aria-label="Search words" placeholder="e.g. Grand Theft Auto VI Xbox Series X" />
+          <button className="btn-primary py-1 text-sm">Search</button>
+          <button type="button" className="btn-ghost py-1 text-sm" onClick={() => setTerms(null)}>Cancel</button>
+          <p className="w-full text-xs text-slate-500">Leave empty to search by the item's name. A new search uses one of this month's searches.</p>
+        </form>
+      ))}
       {error && <p className="text-sm text-red-600">{error}</p>}
       {offers && offers.length > 0 && (
         <div>

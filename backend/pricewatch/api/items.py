@@ -101,6 +101,9 @@ def _is_list_owner(db: Session, item: Item, me: User) -> bool:
 def item_out(db: Session, item: Item, summary: dict, with_sources: bool = False, me: User | None = None) -> ItemOut:
     out = ItemOut.model_validate(item, from_attributes=True)
     out.summary = summary
+    from ..services.discovery import build_query
+
+    out.search_terms = build_query(item)
     if me is not None and not _is_list_owner(db, item, me):
         out.can_claim = True
         if item.claimed_at:

@@ -131,7 +131,12 @@ class ItemSpec:
 
     @classmethod
     def from_item(cls, item) -> "ItemSpec":
-        return cls(**{k: getattr(item, k) for k in cls.__dataclass_fields__})
+        from .querytext import tidy
+
+        spec = cls(**{k: getattr(item, k) for k in cls.__dataclass_fields__})
+        if getattr(spec, "name", None):
+            spec.name = tidy(spec.name)  # a deal headline's prices and sale words are not part of the product
+        return spec
 
 
 @dataclass

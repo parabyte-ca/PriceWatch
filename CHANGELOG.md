@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.4] - 2026-11-17
+### Fixed
+- Watching a deal searched for its whole headline, prices and all ("Grand Theft Auto VI Pre-Order (Xbox Digital Code): Standard $96.50, Ultimate $122"), so stores were not found. Searches and matching now use the product part only ("Grand Theft Auto VI Xbox"): store tags, prices, "Reg"/"was" prices, percentages, edition price lists after a colon, and words like pre-order, digital code, YMMV, free shipping and clearance are left out. Items already on your lists use the cleaner search words from their next refresh
+
+### Added
+- The item page shows what PriceWatch searches for ("Searching for ...") with Change, so you can set your own search words and search again in one step
+
 ## [1.5.3] - 2026-11-17
 ### Added
 - More deals for a category: when a category has more than the 6 shown on Home, "More ... deals (n)" opens its own page with every deal from the last 10 days, as a list or tiles, sorted by best deal, biggest discount, lowest price or newest (remembered on each device), 30 at a time with "Show more". The category chips on Home now show the total number of deals
