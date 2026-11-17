@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.5.3] - 2026-11-17
+### Added
+- More deals for a category: when a category has more than the 6 shown on Home, "More ... deals (n)" opens its own page with every deal from the last 10 days, as a list or tiles, sorted by best deal, biggest discount, lowest price or newest (remembered on each device), 30 at a time with "Show more". The category chips on Home now show the total number of deals
+
 ## [1.5.2] - 2026-11-17
 ### Added
 - Your items on Home ("Waiting for a better price" and "Getting set up") can be shown as a list or as tiles (picture, price, target, how far above the season's low); the choice is remembered on each device

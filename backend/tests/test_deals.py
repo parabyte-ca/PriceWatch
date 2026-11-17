@@ -253,3 +253,30 @@ def test_same_category_shared_between_people(client, db_session, monkeypatch):
     asyncio.run(deals.search_category(db_session, a))
     urls = {d.url for d in db_session.query(CategoryDeal).filter(CategoryDeal.category_id == b.id)}
     assert urls == {"https://x.ca/a1", "https://x.ca/mk4"}
+
+
+def test_category_more_page(client, db_session):
+    """Home shows 6 deals and the total; the More page lists them all, sorted and a page at a time."""
+    from pricewatch.models import CategoryDeal, DealCategory, User
+    from pricewatch.timeutil import utcnow
+
+    me = db_session.query(User).first()
+    cat = DealCategory(user_id=me.id, name="TVs")
+    db_session.add(cat)
+    db_session.flush()
+    for n in range(9):
+        db_session.add(CategoryDeal(category_id=cat.id, title=f"TV {n}", url=f"https://x.ca/{n}",
+                                    price_cents=100000 - n * 5000, was_cents=150000, source="google_shopping",
+                                    seen_at=utcnow() - timedelta(hours=n)))
+    db_session.add(CategoryDeal(category_id=cat.id, title="old", url="https://x.ca/old", price_cents=1, was_cents=2,
+                                source="google_shopping", seen_at=utcnow() - timedelta(days=30)))
+    db_session.commit()
+    home = next(c for c in client.get("/api/deals/home").json()["categories"] if c["id"] == cat.id)
+    assert len(home["deals"]) == 6 and home["total"] == 9
+    page = client.get(f"/api/deal-categories/{cat.id}/deals?sort=price&limit=5").json()
+    assert page["total"] == 9 and len(page["deals"]) == 5 and page["deals"][0]["title"] == "TV 8"
+    rest = client.get(f"/api/deal-categories/{cat.id}/deals?sort=price&offset=5&limit=5").json()
+    assert [d["title"] for d in rest["deals"]] == ["TV 3", "TV 2", "TV 1", "TV 0"]
+    assert client.get(f"/api/deal-categories/{cat.id}/deals?sort=newest").json()["deals"][0]["title"] == "TV 0"
+    assert client.get(f"/api/deal-categories/{cat.id}/deals?sort=bogus").status_code == 422
+    assert client.get("/api/deal-categories/99999/deals").status_code == 404
