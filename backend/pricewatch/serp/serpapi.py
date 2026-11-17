@@ -77,6 +77,7 @@ class SerpApiProvider:
             if not isinstance(st, dict):
                 continue
             row = {"title": st.get("title") or product.get("title"), "link": st.get("link"),
+                   "thumbnail": next(iter(product.get("thumbnails") or []), None),
                    "extracted_price": st.get("extracted_price"), "price": st.get("price"),
                    "source": st.get("name"), "delivery": st.get("shipping") or st.get("delivery")}
             c = shopping_item_to_candidate(row, self.name)

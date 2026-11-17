@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import CategoryDeal, DealCategory, DealFeedEntry, Item, Observation, SourceLink, User
+from ..models import CategoryDeal, DealCategory, DealFeedEntry, DealSighting, Item, Observation, SourceLink, User
 from ..timeutil import utcnow
 from . import claude, events, settings_store, users
 
@@ -26,6 +26,80 @@ log = logging.getLogger(__name__)
 PRESETS = ["TVs", "Laptops", "Home electronics", "Kitchen accessories", "Small appliances", "Women's clothing",
            "Men's clothing", "Toys and games", "Video games", "3D printers", "Tools", "Headphones"]
 KEEP_DAYS = 10
+
+
+# ---------- deal score and price history ----------
+
+def url_key(url: str) -> str:
+    import hashlib
+
+    from .matching import normalize_url
+
+    return hashlib.sha256(normalize_url(url or "").encode()).hexdigest()
+
+
+def record_sighting(db: Session, url: str, price_cents: int | None) -> None:
+    if price_cents and url:
+        db.add(DealSighting(url_key=url_key(url), price_cents=price_cents))
+
+
+def history(db: Session, url: str) -> dict:
+    rows = db.execute(select(DealSighting.seen_at, DealSighting.price_cents)
+                      .where(DealSighting.url_key == url_key(url)).order_by(DealSighting.seen_at)).all()
+    prices = [p for _, p in rows]
+    if not prices:
+        return {"points": [], "low_cents": None, "high_cents": None, "typical_cents": None, "count": 0}
+    srt = sorted(prices)
+    return {"points": [{"at": at, "price_cents": p} for at, p in rows], "low_cents": srt[0], "high_cents": srt[-1],
+            "typical_cents": srt[len(srt) // 2], "count": len(prices)}
+
+
+def score(*, discount_pct: float | None, price_cents: int | None, low_cents: int | None, sightings: int,
+          trusted_store: bool, source: str, age_hours: float) -> int:
+    """0 to 100: how good a deal looks. Discount counts most; being the lowest price seen, a known Canadian store,
+    a vetted source (forum threads are voted on) and freshness add to it."""
+    pts = min(max(discount_pct or 0, 0), 60) / 60 * 50
+    if price_cents and low_cents and sightings >= 2:
+        pts += 20 if price_cents <= low_cents else (10 if price_cents <= low_cents * 1.05 else 0)
+    if trusted_store:
+        pts += 10
+    if source == "rfd":
+        pts += 8
+    pts += 10 if age_hours <= 24 else (5 if age_hours <= 72 else 0)
+    if price_cents:
+        pts += 2
+    return max(0, min(100, round(pts)))
+
+
+def score_deal(db: Session, d: CategoryDeal) -> int:
+    from .retailers import domain_for_merchant
+
+    h = history(db, d.url)
+    age = (utcnow() - d.seen_at).total_seconds() / 3600 if d.seen_at else 0
+    return score(discount_pct=d.discount_pct, price_cents=d.price_cents, low_cents=h["low_cents"],
+                 sightings=h["count"], trusted_store=bool(d.store and domain_for_merchant(d.store)), source=d.source,
+                 age_hours=age)
+
+
+OG_IMAGE = re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\'](https://[^"\']+)["\']', re.I)
+
+
+async def thread_images(db: Session, deals: list[CategoryDeal], limit: int = 4) -> int:
+    """The preview picture of new forum deals (one polite page visit each, a few per poll)."""
+    from . import runtime
+
+    n = 0
+    for d in [x for x in deals if not x.image_url][:limit]:
+        try:
+            res = await runtime.get_fetcher().fetch(d.url, respect_robots=True, min_interval=20)
+        except Exception:  # noqa: BLE001
+            continue
+        m = OG_IMAGE.search(res.html or "") if res.outcome == "ok" else None
+        if m:
+            d.image_url = m.group(1)[:1000]
+            n += 1
+    db.commit()
+    return n
 
 
 # ---------- today's drops on watched items ----------
@@ -57,9 +131,13 @@ def todays_drops(db: Session, user: User, limit: int = 8, min_pct: float = 3.0) 
         if high <= current or (high - current) * 100 / high < min_pct:
             continue
         src = db.get(SourceLink, sid)
+        pct = round((high - current) * 100 / high, 1)
+        lows = [p for _t, p in pts]
         out.append({"item_id": src.item_id, "item": src.item.name, "store": src.retailer.name if src.retailer else None,
-                    "url": src.url, "price_cents": current, "was_cents": high,
-                    "drop_pct": round((high - current) * 100 / high, 1), "seen_at": at})
+                    "url": src.url, "price_cents": current, "was_cents": high, "drop_pct": pct, "seen_at": at,
+                    "image": src.item.image_url,
+                    "score": score(discount_pct=pct, price_cents=current, low_cents=min(lows), sightings=len(lows),
+                                   trusted_store=True, source="watch", age_hours=(now - at).total_seconds() / 3600)})
     out.sort(key=lambda d: -d["drop_pct"])
     best: dict[int, dict] = {}
     for d in out:  # one row per item: its biggest drop
@@ -150,15 +228,24 @@ async def match_rfd(db: Session, entries: list[dict]) -> int:
     titles = [e["title"] for e in entries]
     found = await sort_into_categories(cats, titles)
     added = 0
+    new_deals: list[CategoryDeal] = []
     for e, ids in zip(entries, found, strict=True):
         tag, _text, price = split_title(e["title"])
         for cid in ids:
             if db.scalar(select(CategoryDeal.id).where(CategoryDeal.category_id == cid, CategoryDeal.url == e["link"])):
                 continue
-            db.add(CategoryDeal(category_id=cid, title=e["title"][:500], url=e["link"][:1000], store=tag,
-                                price_cents=price, source="rfd"))
+            d = CategoryDeal(category_id=cid, title=e["title"][:500], url=e["link"][:1000], store=tag,
+                             price_cents=price, source="rfd", seen_at=utcnow())
+            db.add(d)
+            new_deals.append(d)
             added += 1
+        record_sighting(db, e["link"], price)
     db.commit()
+    for d in new_deals:
+        d.score = score_deal(db, d)
+    db.commit()
+    if new_deals:
+        await thread_images(db, new_deals)
     return added
 
 
@@ -197,6 +284,7 @@ async def search_category(db: Session, cat: DealCategory, client: httpx.AsyncCli
     cat.last_search_at = utcnow()
     added = 0
     for c in cands:
+        record_sighting(db, c.url, c.price_cents)
         was = (c.extra or {}).get("old_price_cents")
         if not (c.price_cents and was and was > c.price_cents):
             continue
@@ -206,8 +294,12 @@ async def search_category(db: Session, cat: DealCategory, client: httpx.AsyncCli
         url = c.url
         if db.scalar(select(CategoryDeal.id).where(CategoryDeal.category_id == cat.id, CategoryDeal.url == url)):
             continue
-        db.add(CategoryDeal(category_id=cat.id, title=c.title[:500], url=url[:1000], store=(c.merchant or "")[:120],
-                            price_cents=c.price_cents, was_cents=was, source="google_shopping"))
+        d = CategoryDeal(category_id=cat.id, title=c.title[:500], url=url[:1000], store=(c.merchant or "")[:120],
+                         price_cents=c.price_cents, was_cents=was, source="google_shopping", seen_at=utcnow(),
+                         image_url=(c.extra or {}).get("image"))
+        db.add(d)
+        db.flush()
+        d.score = score_deal(db, d)
         added += 1
     db.commit()
     return added
@@ -242,13 +334,16 @@ def category_deals(db: Session, user: User, per_category: int = 6) -> list[dict]
         deals = db.scalars(select(CategoryDeal).where(CategoryDeal.category_id == c.id,
                                                       CategoryDeal.dismissed.is_(False))
                            .order_by(CategoryDeal.seen_at.desc()).limit(40)).all()
-        deals = sorted(deals, key=lambda d: (-(d.discount_pct or 0), -d.seen_at.timestamp()))[:per_category]
+        for d in deals:
+            d.score = score_deal(db, d)  # freshness changes: rescore on read
+        deals = sorted(deals, key=lambda d: (-(d.score or 0), -d.seen_at.timestamp()))[:per_category]
         out.append({"id": c.id, "name": c.name, "min_discount_pct": c.min_discount_pct,
                     "max_price_cents": c.max_price_cents, "active": c.active,
                     "last_search_at": c.last_search_at,
                     "deals": [{"id": d.id, "title": d.title, "url": d.url, "store": d.store,
                                "price_cents": d.price_cents, "was_cents": d.was_cents,
-                               "discount_pct": d.discount_pct, "source": d.source, "seen_at": d.seen_at}
+                               "discount_pct": d.discount_pct, "source": d.source, "seen_at": d.seen_at,
+                               "image": d.image_url, "score": d.score}
                               for d in deals]})
     return out
 

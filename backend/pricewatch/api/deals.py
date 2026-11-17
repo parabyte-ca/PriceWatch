@@ -81,6 +81,26 @@ def delete_category(cat_id: int, db: Session = Depends(get_db), me: User = Depen
     db.commit()
 
 
+@router.get("/category-deals/{deal_id}/history")
+def deal_history(deal_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Every price this deal's link was seen at, and how today's price compares."""
+    d = db.get(CategoryDeal, deal_id)
+    cat = db.get(DealCategory, d.category_id) if d else None
+    if d is None or cat is None or cat.user_id != me.id:
+        raise HTTPException(404, "Deal not found")
+    h = deals.history(db, d.url)
+    verdict = None
+    if d.price_cents and h["count"] >= 2:
+        if d.price_cents <= h["low_cents"]:
+            verdict = f"Lowest price seen in {h['count']} sightings"
+        else:
+            pct = round((d.price_cents - h["low_cents"]) * 100 / h["low_cents"])
+            verdict = f"{pct}% above the lowest price seen"
+    elif d.price_cents:
+        verdict = "First time PriceWatch has seen this price"
+    return {**h, "verdict": verdict, "price_cents": d.price_cents, "was_cents": d.was_cents, "score": d.score}
+
+
 @router.post("/category-deals/{deal_id}/dismiss", status_code=204)
 def dismiss_deal(deal_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
     d = db.get(CategoryDeal, deal_id)

@@ -177,7 +177,7 @@ async def compare(db: Session, item: Item, provider, *, force: bool = False,
                            "shipping_cents": cand.shipping_cents, "url": url, "store_link": store_link,
                            "provider": via, "confidence": result.confidence, "domain": domain, "kind": kind,
                            "method": result.method, "reasons": result.reasons, "ai": ai,
-                           "local": (cand.extra or {}).get("local")})
+                           "local": (cand.extra or {}).get("local"), "image": (cand.extra or {}).get("image")})
         out.append(row)
         return row
 
@@ -334,10 +334,15 @@ def save_offers(db: Session, item: Item, offers: list[dict], *, query: str = "")
         row = MarketOffer(item_id=item.id, merchant=o["merchant"][:120], title=(o["title"] or "")[:500],
                           price_cents=o["price_cents"], shipping_cents=o["shipping_cents"], url=o["url"][:1000],
                           store_link=o["store_link"], provider=o["provider"][:30], confidence=o["confidence"],
-                          seen_at=now, domain=o["domain"], kind=o["kind"], local_note=o.get("local"))
+                          seen_at=now, domain=o["domain"], kind=o["kind"], local_note=o.get("local"),
+                          image_url=o.get("image"))
         db.add(row)
         rows.append(row)
     db.flush()
+    if not item.image_url:
+        pic = next((o.get("image") for o in ranked if o["kind"] == "store" and o.get("image")), None)
+        if pic:
+            item.image_url = pic[:1000]
     added = 0
     for o in ranked:
         if o["kind"] == "store" and o["domain"]:

@@ -45,7 +45,8 @@ function Row({ i, list }: { i: Item; list?: string }) {
   const s = i.summary;
   return (
     <Link to={`/items/${i.id}`} className="flex items-center justify-between gap-3 border-t border-slate-100 px-1 py-3 first:border-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40">
-      <div className="min-w-0">
+      {i.image_url ? <img src={i.image_url} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded bg-white object-contain" /> : null}
+      <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{i.name}</div>
         <div className="truncate text-xs text-slate-500">
           {list && `${list} · `}{verdict(i)}{s.stale && s.source_count > 0 ? " Price may be out of date." : ""}
