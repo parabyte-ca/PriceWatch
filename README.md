@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-1.2.0-blue)
+![Version](https://img.shields.io/badge/version-1.4.0-blue)
 
 ## Overview
 Type a product, paste a store link or scan a barcode, and PriceWatch CA shows every Canadian
@@ -18,6 +18,8 @@ not the retailer's "was" price, decides whether a sale is real.
 - Claude sorts out bundles, accessories, refurbished units and marketplace sellers so the comparison shows the product itself; "Not this" and "Only this" fix anything in one tap
 - Photo search (Claude reads the product from a photo), in-store stock near your city, optional eBay Canada listings, and alerts with Open store and one-tap Bought
 - Health check on the System page: failing stores, stale prices, search and Claude budgets, forum feed, backups
+- Product photos everywhere (or your own), a 0 to 100 deal score, price history for any deal, and gift claims ("I'll buy this") hidden from the person the list is for
+- Receipt photos become purchases with price protection (you confirm each line); "pay with" your cash-back and card perks; per-category forecasts of when discounts are deepest
 - Optional Claude check on uncertain matches (can reject a lookalike so it is not compared)
 - Ask PriceWatch: plain-language questions about your lists and prices, answered by Claude from your own data (key saved in Household admin)
 - Family link: share a gift list read-only, no account needed; price-match card to show at the till; edit or move any item

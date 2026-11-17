@@ -84,6 +84,7 @@ export function Suggestions({ item, onChange }: { item: Item; onChange: () => vo
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {(showAll ? storeOffers : storeOffers.slice(0, 8)).map((o, n) => (
               <li key={o.url} className="flex items-center gap-2 py-2 text-sm">
+                {o.image ? <img src={o.image} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded bg-white object-contain" /> : <div className="h-10 w-10 shrink-0" />}
                 <div className="min-w-0 flex-1">
                   <a href={o.url} target="_blank" rel="noreferrer" className={`font-medium hover:underline ${n === 0 ? "text-green-700 dark:text-green-400" : ""}`}>
                     {o.merchant}

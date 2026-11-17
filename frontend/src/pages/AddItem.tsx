@@ -4,7 +4,7 @@ import { api, Item, money, toCents, toDollars } from "../api";
 import BarcodeScan from "../components/BarcodeScan";
 import { useSession } from "../session";
 
-interface FindOffer { local?: string | null; merchant: string; title: string; url: string; store_link: boolean; price_cents: number;
+interface FindOffer { pay_with?: { label: string; percent: number }[]; after_perks_cents?: number | null; image?: string | null; local?: string | null; merchant: string; title: string; url: string; store_link: boolean; price_cents: number;
   shipping_cents: number | null; landed_cents: number; kind: string; domain: string | null; confidence: number | null; method: string }
 interface FindResult {
   query: string; provider: string | null; cached: boolean; notes: string[];
@@ -156,6 +156,7 @@ export default function AddItem() {
             <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
               {stores.map((o, n) => (
                 <li key={o.url} className="flex items-center gap-3 py-2">
+                  {o.image ? <img src={o.image} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded bg-white object-contain" /> : <div className="h-10 w-10 shrink-0" />}
                   <div className="min-w-0 flex-1">
                     <a href={o.url} target="_blank" rel="noreferrer" className={`font-medium hover:underline ${n === 0 ? "text-green-700 dark:text-green-400" : ""}`}>{o.merchant}</a>
                     <div className="truncate text-xs text-slate-500" title={o.title}>{o.title}</div>
@@ -164,6 +165,8 @@ export default function AddItem() {
                   <div className="shrink-0 text-right">
                     <div className="font-semibold">{money(o.price_cents)}</div>
                     <div className="text-xs text-slate-500">{money(o.landed_cents)} with tax</div>
+                    {o.after_perks_cents != null && <div className="text-xs text-blue-700 dark:text-blue-300" title={(o.pay_with || []).map((p) => `${p.label} ${p.percent}%`).join(" + ")}>
+                      {money(o.after_perks_cents)} with {(o.pay_with || []).map((p) => p.label).join(" + ")}</div>}
                   </div>
                   <button className="shrink-0 px-1 text-xs text-slate-400 hover:text-red-600" title="Not this product: hide it from this search from now on"
                     onClick={() => notThis(o)}>Not this</button>

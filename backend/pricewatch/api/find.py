@@ -84,19 +84,30 @@ def _transient(product: dict, query: str | None = None) -> Item:
     return item
 
 
-def _rows(offers: list[dict], cfg: dict) -> list[dict]:
+def _rows(offers: list[dict], cfg: dict, db: Session | None = None) -> list[dict]:
+    from ..services.perks import active_perks, after_perks
+
     rows = []
     for o in best_per_store(offers):
         landed = landed_price(o["price_cents"], o["shipping_cents"], cfg["province"], cfg.get("tax_overrides") or {})
+        perks = after_perks(landed["landed_cents"], active_perks(db, o["domain"])) if db is not None and o["domain"] \
+            else {"perks": []}
         rows.append({"merchant": o["merchant"], "title": o["title"], "url": o["url"], "store_link": o["store_link"],
                      "price_cents": o["price_cents"], "shipping_cents": o["shipping_cents"],
                      "landed_cents": landed["landed_cents"], "kind": o["kind"], "domain": o["domain"],
-                     "confidence": o["confidence"], "method": o["method"], "local": o.get("local")})
+                     "confidence": o["confidence"], "method": o["method"], "local": o.get("local"),
+                     "image": o.get("image"),
+                     "pay_with": [{"label": p["label"], "percent": p["percent"]} for p in perks["perks"]],
+                     "after_perks_cents": perks.get("after_perks_cents") if perks["perks"] else None})
     return rows
 
 
 def _with_best(out: dict, rows: list[dict]) -> dict:
     stores = [o for o in rows if o["kind"] == "store"]
+    if not (out.get("product") or {}).get("image"):
+        pic = next((o["image"] for o in stores if o.get("image")), None)
+        if pic:
+            out["product"] = {**(out.get("product") or {}), "image": pic}
     out.update(offers=rows, best=stores[0] if stores else None,
                suggested_target_cents=suggest_target(stores[0]["price_cents"] if stores else None))
     return out
@@ -118,11 +129,11 @@ async def _run_find(db: Session, me: User, q: str, force: bool, on_stage=None) -
 
     async def staged(name: str, offers: list[dict]) -> None:
         if on_stage is not None:
-            await on_stage(name, _with_best(dict(out), _rows(offers, cfg)))
+            await on_stage(name, _with_best(dict(out), _rows(offers, cfg, db)))
 
     r = await compare(db, item, provider, force=force, on_stage=staged)
     out.update(query=r["query"], cached=r["cached"], notes=r["notes"])
-    return _with_best(out, _rows(r["offers"], cfg))
+    return _with_best(out, _rows(r["offers"], cfg, db))
 
 
 @router.post("/find")

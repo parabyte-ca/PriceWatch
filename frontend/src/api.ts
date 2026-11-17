@@ -109,7 +109,7 @@ export interface PriceMatch {
 export interface MarketBest { merchant: string; price_cents: number; shipping_cents: number | null; url: string; store_link: boolean; title: string }
 export interface Offer { merchant: string; title: string; price_cents: number; shipping_cents: number | null; url: string;
   store_link: boolean; provider: string; confidence: number | null; seen_at: string; tracked: string | null;
-  kind: string; domain: string | null; local?: string | null }
+  kind: string; domain: string | null; local?: string | null; image?: string | null }
 
 export interface Summary {
   market?: { best: MarketBest | null; stores: number; seen_at: string } | null;
@@ -145,6 +145,9 @@ export interface Summary {
 }
 
 export interface Item {
+  claimed_by?: string | null;
+  claimed_by_me?: boolean;
+  can_claim?: boolean;
   id: number;
   name: string;
   brand: string | null;

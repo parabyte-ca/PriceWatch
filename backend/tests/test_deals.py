@@ -16,6 +16,10 @@ def test_keyword_match():
 
 
 def test_categories_from_forum_threads_and_on_sale_search(client, db_session, monkeypatch):
+    async def no_pictures(db, found, limit=4):
+        return 0
+
+    monkeypatch.setattr(deals, "thread_images", no_pictures)
     r = client.post("/api/deal-categories", json={"name": "TVs", "min_discount_pct": 20})
     assert r.status_code == 201
     cat_id = r.json()["id"]
@@ -85,3 +89,131 @@ def test_health_check(client, db_session):
     from pricewatch.services import health
 
     assert health.summary_line(db_session).startswith("Health: ")
+
+
+def test_deal_score_history_and_thread_picture(client, db_session, monkeypatch):
+    from pricewatch.fetch.http import FetchResult
+    from pricewatch.models import CategoryDeal
+    from pricewatch.services import runtime
+
+    assert deals.score(discount_pct=40, price_cents=1000, low_cents=1000, sightings=3, trusted_store=True,
+                       source="google_shopping", age_hours=2) > deals.score(
+        discount_pct=40, price_cents=1200, low_cents=1000, sightings=3, trusted_store=False, source="google_shopping",
+        age_hours=100)
+    cat = client.post("/api/deal-categories", json={"name": "TVs"}).json()
+    url = "https://forums.redflagdeals.com/tv-1"
+    for p in (59999, 49999):
+        deals.record_sighting(db_session, url, p)
+    d = CategoryDeal(category_id=cat["id"], title="[Best Buy] 65\" TV", url=url, price_cents=49999, source="rfd")
+    db_session.add(d)
+    db_session.commit()
+    h = client.get(f"/api/category-deals/{d.id}/history").json()
+    assert h["low_cents"] == 49999 and h["count"] == 2 and h["verdict"].startswith("Lowest price seen")
+
+    class F:
+        async def fetch(self, url, **kw):
+            return FetchResult(url=url, outcome="ok", status_code=200,
+                               html='<meta property="og:image" content="https://img.rfd/x.jpg">')
+
+    monkeypatch.setattr(runtime, "get_fetcher", lambda: F())
+    import asyncio
+
+    assert asyncio.run(deals.thread_images(db_session, [d])) == 1
+    db_session.refresh(d)
+    assert d.image_url == "https://img.rfd/x.jpg"
+
+
+def test_gift_claims_hidden_from_the_list_owner(client, db_session):
+    from pricewatch.models import Item, User, WishList
+    from pricewatch.services import users
+
+    item = client.post("/api/items", json={"name": "LEGO Titanic"}).json()
+    # the admin owns the list: claims are hidden from them, and they cannot claim on their own list
+    assert client.post(f"/api/items/{item['id']}/claim").status_code == 409
+    lst = db_session.get(WishList, db_session.get(Item, item["id"]).list_id)
+    r = client.post(f"/api/lists/{lst.id}/share", json={})
+    token = r.json()["share_link"].rsplit("/", 1)[-1]
+    shared = client.get(f"/api/shared/{token}").json()["items"][0]
+    assert shared["claimed"] is False
+    c = client.post(f"/api/shared/{token}/items/{shared['id']}/claim", json={"name": "Aunt Sue"})
+    assert c.status_code == 200
+    assert client.post(f"/api/shared/{token}/items/{shared['id']}/claim", json={"name": "Bob"}).status_code == 409
+    assert client.get(f"/api/shared/{token}").json()["items"][0]["claimed_by"] == "Aunt Sue"
+    assert client.get(f"/api/items/{item['id']}").json()["claimed_by"] is None  # the owner does not see it
+    assert client.delete(f"/api/shared/{token}/items/{shared['id']}/claim", params={"code": "wrong"}).status_code == 403
+    undo = client.delete(f"/api/shared/{token}/items/{shared['id']}/claim", params={"code": c.json()["code"]})
+    assert undo.status_code == 204
+    _ = (User, users)
+
+
+def test_item_photo_upload(client):
+    import base64
+
+    item = client.post("/api/items", json={"name": "Mixer"}).json()
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 200
+    r = client.post(f"/api/items/{item['id']}/photo", json={"image_b64": base64.b64encode(png).decode()}).json()
+    assert r["image_url"].startswith("/api/photos/") and client.get(r["image_url"]).content == png
+    bad = client.post(f"/api/items/{item['id']}/photo", json={"image_b64": base64.b64encode(b"x" * 200).decode()})
+    assert bad.status_code == 422
+    assert client.get("/api/photos/evil.txt").status_code == 404
+
+
+def test_receipt_photo_read_then_save(client, db_session, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    import anthropic
+
+    from pricewatch.api import receipts
+    from pricewatch.models import Purchase
+    from pricewatch.services import claude
+
+    item = client.post("/api/items", json={"name": "Nintendo Switch 2"}).json()
+    monkeypatch.setattr(claude, "api_key", lambda: "sk-ant-test")
+
+    class API:
+        @property
+        def messages(self):
+            return self
+
+        async def parse(self, **kw):
+            assert f"{item['id']}: Nintendo Switch 2" in kw["messages"][0]["content"][1]["text"]
+            return NS(usage=None, parsed_output=receipts.Receipt(is_receipt=True, store="Best Buy", date="2026-11-28",
+                      lines=[receipts.ReceiptLine(name="NINTENDO SW2 CNSL", price_cents=59999, item_id=item["id"]),
+                             receipts.ReceiptLine(name="HDMI CABLE", price_cents=1999, item_id=999999)]))
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kw: API())
+    r = client.post("/api/purchases/receipt/read", json={"image_b64": "A" * 200}).json()
+    assert r["domain"] == "bestbuy.ca" and [ln["item_id"] for ln in r["lines"]] == [item["id"], None]
+    assert db_session.query(Purchase).count() == 0  # nothing recorded before Save
+    s = client.post("/api/purchases/receipt/save", json={"store": "Best Buy", "date": "2026-11-28",
+                                                          "lines": [{"item_id": item["id"], "price_cents": 59999}]})
+    assert s.json() == {"saved": 1, "skipped": 0}
+    p = db_session.query(Purchase).one()
+    assert p.price_cents == 59999 and str(p.purchased_on) == "2026-11-28"
+
+
+def test_category_forecast(client, db_session):
+    from datetime import datetime
+
+    from pricewatch.models import CategoryDeal, DealCategory
+
+    cat_id = client.post("/api/deal-categories", json={"name": "TVs"}).json()["id"]
+    cat = db_session.get(DealCategory, cat_id)
+    assert deals.forecast(db_session, cat) is None  # not enough yet
+    for day, pct in [(24, 40), (25, 35), (26, 30), (10, 15), (11, 10), (12, 20), (13, 15), (14, 12)]:
+        db_session.add(CategoryDeal(category_id=cat_id, title="TV", url=f"https://x/{day}", price_cents=100 - pct,
+                                    was_cents=100, source="rfd", seen_at=datetime(2026, 11, day, 17)))
+    db_session.commit()
+    f = deals.forecast(db_session, cat)
+    assert f["best_window"] == "Black Friday week" and f["averages"]["Black Friday week"] == 35
+
+
+def test_pay_with_text():
+    from pricewatch.services.alerts import pay_with_text
+
+    best = {"perks": [{"label": "Card", "percent": 5}], "perks_saving_cents": 2500}
+    assert pay_with_text(best) == " Pay with: Card 5% ($25.00 back)."
+    assert pay_with_text({}) == ""

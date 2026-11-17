@@ -23,7 +23,7 @@ from .services import users as users_svc
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-OPEN_PATHS = ("/api/auth/", "/healthz", "/api/actions/", "/api/shared/")
+OPEN_PATHS = ("/api/auth/", "/healthz", "/api/actions/", "/api/shared/", "/api/photos/")
 _failures: dict[str, list[float]] = defaultdict(list)
 
 

@@ -5,6 +5,7 @@ import re
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -90,9 +91,21 @@ def source_out(src: SourceLink, province: str, db: Session | None = None) -> Sou
     return out
 
 
+def _is_list_owner(db: Session, item: Item, me: User) -> bool:
+    from ..models import WishList
+
+    lst = db.get(WishList, item.list_id) if item.list_id else None
+    return lst is not None and lst.owner_id == me.id
+
+
 def item_out(db: Session, item: Item, summary: dict, with_sources: bool = False, me: User | None = None) -> ItemOut:
     out = ItemOut.model_validate(item, from_attributes=True)
     out.summary = summary
+    if me is not None and not _is_list_owner(db, item, me):
+        out.can_claim = True
+        if item.claimed_at:
+            out.claimed_by = item.claimed_by_name or "someone"
+            out.claimed_by_me = item.claimed_by_user_id == me.id
     if with_sources:
         province = settings_store.get(db, "province", me.id if me else None)
         out.sources = [source_out(s, province, db) for s in item.sources]
@@ -358,6 +371,7 @@ def market_offers(item_id: int, db: Session = Depends(get_db), me: User = Depend
     return [{"merchant": o.merchant, "title": o.title, "price_cents": o.price_cents, "shipping_cents": o.shipping_cents,
              "url": o.url, "store_link": o.store_link, "provider": o.provider, "confidence": o.confidence,
              "seen_at": o.seen_at.isoformat() + "Z", "kind": o.kind, "domain": o.domain, "local": o.local_note,
+             "image": o.image_url,
              "tracked": tracked.get(normalize_url(o.url)) or by_domain.get(o.domain)} for o in rows]
 
 
@@ -467,3 +481,70 @@ def history(item_id: int, days: int = 120, db: Session = Depends(get_db),
             "in_stock": stock, "method": method,
         })
     return {"item_id": item.id, "series": list(series.values())}
+
+
+@router.post("/items/{item_id}/claim")
+def claim_item(item_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """"I'll buy this": tell the others on the list (never the list's owner) that you are getting it."""
+    item = _load_item(db, item_id, me)
+    if _is_list_owner(db, item, me):
+        raise HTTPException(409, "This is your own list: others claim gifts on it")
+    if item.claimed_at and item.claimed_by_user_id != me.id:
+        raise HTTPException(409, f"{item.claimed_by_name or 'Someone'} is already getting this")
+    item.claimed_by_user_id, item.claimed_by_name, item.claimed_at = me.id, me.display_name, utcnow()
+    db.commit()
+    return {"claimed_by": item.claimed_by_name}
+
+
+@router.delete("/items/{item_id}/claim", status_code=204)
+def unclaim_item(item_id: int, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    item = _load_item(db, item_id, me)
+    if item.claimed_by_user_id != me.id and me.role != "admin":
+        raise HTTPException(403, "Only the person who claimed it can undo that")
+    item.claimed_by_user_id = item.claimed_by_name = item.claimed_at = item.claimed_code = None
+    db.commit()
+
+
+class PhotoUpload(BaseModel):
+    image_b64: str = Field(min_length=100, max_length=6_000_000)
+
+
+@router.post("/items/{item_id}/photo")
+def upload_item_photo(item_id: int, body: PhotoUpload, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Your own photo for an item (JPEG, PNG or WebP, up to about 4 MB), kept in the data folder."""
+    import base64
+    import hashlib
+
+    from ..config import get_settings
+
+    item = _load_item(db, item_id, me, write=True)
+    try:
+        raw = base64.b64decode(body.image_b64, validate=True)
+    except ValueError as exc:
+        raise HTTPException(422, "Not a picture") from exc
+    ext = "jpg" if raw[:3] == b"\xff\xd8\xff" else "png" if raw[:8] == b"\x89PNG\r\n\x1a\n" else \
+        "webp" if raw[:4] == b"RIFF" and raw[8:12] == b"WEBP" else None
+    if ext is None:
+        raise HTTPException(422, "Use a JPEG, PNG or WebP picture")
+    folder = get_settings().data_dir / "photos"
+    folder.mkdir(parents=True, exist_ok=True)
+    name = f"{item.id}-{hashlib.sha256(raw).hexdigest()[:12]}.{ext}"
+    (folder / name).write_bytes(raw)
+    item.image_url = f"/api/photos/{name}"
+    db.commit()
+    return {"image_url": item.image_url}
+
+
+@router.get("/photos/{name}")
+def get_photo(name: str):
+    """Item photos (also shown on family links, so no sign-in; names carry a content hash)."""
+    from fastapi.responses import FileResponse
+
+    from ..config import get_settings
+
+    if not re.fullmatch(r"\d+-[0-9a-f]{12}\.(jpg|png|webp)", name):
+        raise HTTPException(404, "Not found")
+    path = get_settings().data_dir / "photos" / name
+    if not path.is_file():
+        raise HTTPException(404, "Not found")
+    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})

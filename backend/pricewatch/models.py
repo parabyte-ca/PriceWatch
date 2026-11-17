@@ -130,6 +130,11 @@ class Item(Base):
     search_query: Mapped[str | None] = mapped_column(String(300))
     snoozed_until: Mapped[datetime | None] = mapped_column(DateTime)
     autofill: Mapped[bool] = mapped_column(Boolean, default=False)
+    # gift claims: who said "I'll buy this" (hidden from the person the list is for)
+    claimed_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    claimed_by_name: Mapped[str | None] = mapped_column(String(80))
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    claimed_code: Mapped[str | None] = mapped_column(String(64))  # lets a family-link visitor undo their claim
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -450,6 +455,7 @@ class MarketOffer(Base):
     domain: Mapped[str | None] = mapped_column(String(120))  # the known Canadian store, when recognised
     kind: Mapped[str] = mapped_column(String(20), default="store")  # store | marketplace | bundle | other
     local_note: Mapped[str | None] = mapped_column(String(80))  # "In stock nearby", "Pick up today"
+    image_url: Mapped[str | None] = mapped_column(String(1000))
 
 
 class ListingFeedback(Base):
@@ -497,12 +503,25 @@ class CategoryDeal(Base):
     source: Mapped[str] = mapped_column(String(30))  # rfd | google_shopping
     seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     dismissed: Mapped[bool] = mapped_column(Boolean, default=False)
+    image_url: Mapped[str | None] = mapped_column(String(1000))
+    score: Mapped[int | None] = mapped_column(Integer)  # 0 to 100, see services.deals.score
 
     @property
     def discount_pct(self) -> int | None:
         if self.price_cents and self.was_cents and self.was_cents > self.price_cents:
             return round((self.was_cents - self.price_cents) * 100 / self.was_cents)
         return None
+
+
+class DealSighting(Base):
+    """Every price a deal's link was seen at, so a deal can show whether its price is really low."""
+
+    __tablename__ = "deal_sightings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    url_key: Mapped[str] = mapped_column(String(64), index=True)  # sha256 of the normalised link
+    price_cents: Mapped[int] = mapped_column(Integer)
+    seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
 class LlmMatchCache(Base):

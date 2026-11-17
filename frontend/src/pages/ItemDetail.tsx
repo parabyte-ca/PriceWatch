@@ -125,7 +125,22 @@ export default function ItemDetail() {
     <div className="space-y-4">
       <Link to="/" className="text-sm text-slate-500 hover:underline">← Home</Link>
       <div className="card flex flex-col gap-4 md:flex-row">
-        {item.image_url && <img src={item.image_url} alt="" className="h-32 w-32 self-center rounded object-contain" />}
+        <div className="flex flex-col items-center gap-1 self-center">
+          {item.image_url ? <img src={item.image_url} alt="" className="h-32 w-32 rounded object-contain" />
+            : <div className="flex h-32 w-32 items-center justify-center rounded bg-slate-100 text-3xl dark:bg-slate-800" aria-hidden>📦</div>}
+          <label className="cursor-pointer text-xs text-slate-500 hover:underline">
+            {item.image_url ? "Change photo" : "Add a photo"}
+            <input type="file" accept="image/*" className="hidden" onChange={async (e) => {
+              const f = e.target.files?.[0]; e.target.value = "";
+              if (!f) return;
+              const bmp = await createImageBitmap(f);
+              const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+              const c = document.createElement("canvas"); c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+              c.getContext("2d")?.drawImage(bmp, 0, 0, c.width, c.height);
+              run(() => api(`/api/items/${id}/photo`, { method: "POST", json: { image_b64: c.toDataURL("image/jpeg", 0.85).split(",")[1] } }), "Photo saved");
+            }} />
+          </label>
+        </div>
         <div className="flex-1 space-y-3">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
@@ -134,6 +149,18 @@ export default function ItemDetail() {
             </div>
             <Badge value={s.badge} />
           </div>
+          {item.can_claim && (
+            <div className="text-sm">
+              {item.claimed_by ? (
+                <span className="text-amber-700 dark:text-amber-400">🎁 {item.claimed_by_me ? "You are" : `${item.claimed_by} is`} getting this
+                  {item.claimed_by_me && <button className="ml-2 text-xs underline" onClick={() => run(() => api(`/api/items/${id}/claim`, { method: "DELETE" }), "Claim removed")}>undo</button>}
+                </span>
+              ) : (
+                <button className="btn-ghost px-2 py-0.5 text-xs" title="Tell the others on this list (never its owner) that you are getting it"
+                  onClick={() => run(() => api(`/api/items/${id}/claim`, { method: "POST" }), "The others will see you are getting it")}>🎁 I'll buy this</button>
+              )}
+            </div>
+          )}
           {(urlAction === "bought" || buying) && (
             <BoughtForm item={item} onCancel={() => { setBuying(false); setParams({}); }}
               onDone={() => { setBuying(false); setParams({}); flash("Purchase saved; price protection is on"); load(); loadPurchases(); }} />

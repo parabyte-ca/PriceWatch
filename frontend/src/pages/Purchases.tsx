@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import OrderEmails from "../components/OrderEmails";
+import ReceiptScan from "../components/ReceiptScan";
 import { PurchaseCard, PurchaseInfo } from "../components/Purchase";
 
 export default function Purchases() {
@@ -16,6 +17,7 @@ export default function Purchases() {
         After you buy, PriceWatch keeps checking that store until the price-protection window closes and alerts you when you can
         claim money back. A proof package (page snapshot, timestamps, parsed price) is saved with each drop.
       </p>
+      <ReceiptScan onSaved={load} />
       {!rows.length && <div className="card">No purchases yet. Use "Bought" on an item page.</div>}
       {open.map((p) => <PurchaseCard key={p.id} p={p} onChange={load} />)}
       {rest.length > 0 && <h2 className="pt-2 text-sm font-semibold text-slate-500">Closed</h2>}

@@ -113,6 +113,9 @@ class ItemOut(ItemBase):
     updated_at: UTCDateTime
     summary: dict = {}
     sources: list[SourceOut] | None = None
+    claimed_by: str | None = None  # gift claim, hidden from the list's owner (the person the list is for)
+    claimed_by_me: bool = False
+    can_claim: bool = False
 
 
 class UrlIn(BaseModel):

@@ -1,5 +1,6 @@
 """People (household accounts), lists, membership and friend codes."""
 
+import secrets
 import time
 from collections import defaultdict
 from datetime import date
@@ -233,11 +234,46 @@ def shared_list(token: str, db: Session = Depends(get_db)):
         if not i.active and i.id not in bought:
             continue
         best = sums[i.id]["best"] or {}
-        out.append({"name": i.name, "image_url": i.image_url, "brand": i.brand, "target_cents": i.target_price_cents,
+        out.append({"id": i.id, "claimed": bool(i.claimed_at), "claimed_by": i.claimed_by_name if i.claimed_at else None,
+                    "name": i.name, "image_url": i.image_url, "brand": i.brand, "target_cents": i.target_price_cents,
                     "price_cents": sums[i.id]["best_price_cents"], "store": best.get("retailer"), "url": best.get("url"),
                     "good_price": sums[i.id]["decision"] in ("BUY", "BUY_AND_PROTECT"), "bought": i.id in bought})
     return {"name": lst.name, "occasion": lst.occasion, "recipient": lst.recipient,
             "event_date": lst.event_date.isoformat() if lst.event_date else None, "items": out}
+
+
+class SharedClaimIn(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
+def _shared_item(db: Session, token: str, item_id: int) -> Item:
+    lst = db.scalar(select(WishList).where(WishList.share_token == token)) if 8 <= len(token) <= 64 else None
+    item = db.get(Item, item_id) if lst else None
+    if item is None or item.list_id != lst.id:
+        raise HTTPException(404, "This link is not shared any more")
+    return item
+
+
+@router.post("/shared/{token}/items/{item_id}/claim")
+def shared_claim(token: str, item_id: int, body: SharedClaimIn, db: Session = Depends(get_db)):
+    """Family link: "I'll get this". Returns a code that lets the same person undo it (kept in their browser)."""
+    item = _shared_item(db, token, item_id)
+    if item.claimed_at:
+        raise HTTPException(409, f"{item.claimed_by_name or 'Someone'} is already getting this")
+    code = secrets.token_urlsafe(16)
+    item.claimed_by_name, item.claimed_at, item.claimed_code = body.name.strip()[:40], utcnow(), code
+    item.claimed_by_user_id = None
+    db.commit()
+    return {"code": code, "claimed_by": item.claimed_by_name}
+
+
+@router.delete("/shared/{token}/items/{item_id}/claim", status_code=204)
+def shared_unclaim(token: str, item_id: int, code: str, db: Session = Depends(get_db)):
+    item = _shared_item(db, token, item_id)
+    if not item.claimed_code or not secrets.compare_digest(item.claimed_code, code):
+        raise HTTPException(403, "Only the person who claimed it can undo that")
+    item.claimed_by_user_id = item.claimed_by_name = item.claimed_at = item.claimed_code = None
+    db.commit()
 
 
 @router.delete("/lists/{list_id}", status_code=204)

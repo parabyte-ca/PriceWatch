@@ -205,6 +205,15 @@ def deliver(db: Session, alert: Alert, cfg: dict | None = None, force: bool = Fa
     return alert
 
 
+def pay_with_text(best: dict) -> str:
+    """" Pay with: Rakuten-style portal 2% + card 5% ($41.20 back)." from the perks the household entered."""
+    perks = best.get("perks") or []
+    if not perks:
+        return ""
+    names = " + ".join(f"{p['label']} {p['percent']:g}%" for p in perks)
+    return f" Pay with: {names} ({money(best.get('perks_saving_cents'))} back)."
+
+
 def raise_alert(db: Session, *, item: Item | None, rule: str, key: str, title: str, body: str,
                 url: str | None = None, cfg: dict | None = None, instant: bool = True,
                 user_id: int | None = None) -> Alert | None:
@@ -278,7 +287,8 @@ def _evaluate_for(db: Session, user: User, item: Item, summary: dict, source: So
                 body=(f"{best['retailer'] or 'Retailer'}: {money(best['landed']['price_cents'])} "
                       f"({money(landed)} landed in {cfg['province']}). {summary['decision_reason']}. "
                       f"Seasonal low {money(summary['seasonal_low_cents'])}, history {summary['history_confidence']}."
-                      + (f" Target {money(item.target_price_cents)}." if item.target_price_cents else "")),
+                      + (f" Target {money(item.target_price_cents)}." if item.target_price_cents else "")
+                      + pay_with_text(best)),
                 url=best["url"], cfg=cfg))
 
     if source is None or source.last_price_cents is None:

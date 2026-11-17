@@ -2,11 +2,12 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ago, api, money } from "../api";
 
-interface Drop { item_id: number; item: string; store: string | null; url: string; price_cents: number; was_cents: number; drop_pct: number; seen_at: string }
+interface Drop { image?: string | null; score?: number; item_id: number; item: string; store: string | null; url: string; price_cents: number; was_cents: number; drop_pct: number; seen_at: string }
 interface Thread { item_id: number; item: string; title: string; url: string; price_cents: number | null; seen_at: string }
 interface CatDeal { id: number; title: string; url: string; store: string | null; price_cents: number | null; was_cents: number | null;
-  discount_pct: number | null; source: string; seen_at: string }
-interface Category { id: number; name: string; min_discount_pct: number; deals: CatDeal[]; last_search_at: string | null }
+  discount_pct: number | null; source: string; seen_at: string; image?: string | null; score?: number | null }
+interface DealHistory { low_cents: number | null; high_cents: number | null; typical_cents: number | null; count: number; verdict: string | null }
+interface Category { forecast?: { text: string } | null; id: number; name: string; min_discount_pct: number; deals: CatDeal[]; last_search_at: string | null }
 interface HomeDealsData { drops: Drop[]; threads: Thread[]; categories: Category[]; presets: string[] }
 
 const SOURCE: Record<string, string> = { rfd: "RedFlagDeals", google_shopping: "Google Shopping" };
@@ -18,6 +19,16 @@ export default function HomeDeals() {
   const [cat, setCat] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
+  const [view, setView] = useState<"list" | "tiles">(() => {
+    try { return localStorage.getItem("pw-deal-view") === "tiles" ? "tiles" : "list"; } catch { return "list"; }
+  });
+  const pickView = (v: "list" | "tiles") => { setView(v); try { localStorage.setItem("pw-deal-view", v); } catch { /* private window */ } };
+  const [hist, setHist] = useState<Record<number, DealHistory | "loading">>({});
+  const showHistory = (id: number) => {
+    if (hist[id]) { const h = { ...hist }; delete h[id]; setHist(h); return; }
+    setHist({ ...hist, [id]: "loading" });
+    api<DealHistory>(`/api/category-deals/${id}/history`).then((h) => setHist((x) => ({ ...x, [id]: h }))).catch(() => {});
+  };
   const load = () => api<HomeDealsData>("/api/deals/home").then((r) => {
     setD(r);
     setCat((c) => (c && r.categories.some((x) => x.id === c) ? c : r.categories[0]?.id ?? null));
@@ -42,7 +53,8 @@ export default function HomeDeals() {
           <div className="card py-1">
             {d.drops.map((x) => (
               <Link key={x.item_id} to={`/items/${x.item_id}`} className="flex items-center justify-between gap-3 border-t border-slate-100 px-1 py-2 first:border-0 dark:border-slate-800">
-                <div className="min-w-0">
+                {x.image ? <img src={x.image} alt="" loading="lazy" className="h-10 w-10 shrink-0 rounded bg-white object-contain" /> : null}
+                <div className="min-w-0 flex-1">
                   <div className="truncate font-medium">{x.item}</div>
                   <div className="text-xs text-slate-500">{x.store} · {ago(x.seen_at)}</div>
                 </div>
@@ -76,7 +88,19 @@ export default function HomeDeals() {
       <section className="space-y-2">
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-lg font-semibold">Deals by category</h2>
-          {d.categories.length > 0 && <button className="text-sm text-slate-500 hover:underline" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit"}</button>}
+          <div className="flex items-center gap-3">
+            {d.categories.length > 0 && (
+              <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs dark:border-slate-700" role="group" aria-label="Deal view">
+                {(["list", "tiles"] as const).map((v) => (
+                  <button key={v} onClick={() => pickView(v)} aria-pressed={view === v}
+                    className={`px-2 py-1 ${view === v ? "bg-red-700 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}>
+                    {v === "list" ? "☰ List" : "▦ Tiles"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {d.categories.length > 0 && <button className="text-sm text-slate-500 hover:underline" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit"}</button>}
+          </div>
         </div>
         {d.categories.length > 0 && (
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
@@ -92,7 +116,37 @@ export default function HomeDeals() {
             ))}
           </div>
         )}
-        {shown && (
+        {shown?.forecast && <p className="px-1 text-xs text-slate-500">📈 {shown.forecast.text}</p>}
+        {shown && view === "tiles" && shown.deals.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {shown.deals.map((x) => (
+              <div key={x.id} className="card flex flex-col gap-2 p-3">
+                <a href={x.url} target="_blank" rel="noreferrer" className="relative block">
+                  {x.image ? <img src={x.image} alt="" loading="lazy" className="aspect-square w-full rounded bg-white object-contain" />
+                    : <div className="flex aspect-square w-full items-center justify-center rounded bg-slate-100 text-4xl dark:bg-slate-800" aria-hidden>🏷️</div>}
+                  {x.score != null && <span className={`absolute left-1 top-1 rounded px-1 text-xs font-semibold ${x.score >= 70 ? "bg-green-600 text-white" : x.score >= 45 ? "bg-amber-500 text-white" : "bg-slate-300 text-slate-800"}`} title="Deal score">{x.score}</span>}
+                  {x.discount_pct != null && <span className="absolute right-1 top-1 rounded bg-red-700 px-1 text-xs font-semibold text-white">−{x.discount_pct}%</span>}
+                </a>
+                <a href={x.url} target="_blank" rel="noreferrer" className="line-clamp-2 text-sm hover:underline">{x.title}</a>
+                <div className="mt-auto">
+                  {x.price_cents != null && <div className="font-semibold">{money(x.price_cents)} {x.was_cents != null && <span className="text-xs font-normal text-slate-500 line-through">{money(x.was_cents)}</span>}</div>}
+                  <div className="truncate text-xs text-slate-500">{[x.store, SOURCE[x.source] ?? x.source].filter(Boolean).join(" · ")}</div>
+                </div>
+                <div className="flex items-center justify-between gap-1 text-xs">
+                  <Link to={`/add?q=${encodeURIComponent(x.title.replace(/^\s*\[[^\]]*\]\s*/, ""))}`} className="btn-ghost px-2 py-0.5 text-xs">Watch</Link>
+                  <button className="text-slate-500 hover:underline" onClick={() => showHistory(x.id)}>History</button>
+                  <button className="text-slate-400 hover:text-red-600" onClick={() => api(`/api/category-deals/${x.id}/dismiss`, { method: "POST" }).then(load)}>Hide</button>
+                </div>
+                {hist[x.id] && (
+                  <div className="rounded bg-slate-50 p-1 text-xs dark:bg-slate-800/60">
+                    {hist[x.id] === "loading" ? "Loading…" : ((hist[x.id] as DealHistory).verdict ?? "No price history yet")}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {shown && (view === "list" || shown.deals.length === 0) && (
           <div className="card py-1">
             {shown.deals.length === 0 && (
               <p className="py-2 text-sm text-slate-500">
@@ -101,10 +155,16 @@ export default function HomeDeals() {
               </p>
             )}
             {shown.deals.map((x) => (
-              <div key={x.id} className="flex items-center gap-3 border-t border-slate-100 px-1 py-2 first:border-0 dark:border-slate-800">
+              <div key={x.id} className="border-t border-slate-100 px-1 py-2 first:border-0 dark:border-slate-800">
+              <div className="flex items-center gap-3">
+                {x.image ? <img src={x.image} alt="" loading="lazy" className="h-14 w-14 shrink-0 rounded bg-white object-contain" />
+                  : <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded bg-slate-100 text-xl dark:bg-slate-800" aria-hidden>🏷️</div>}
                 <a href={x.url} target="_blank" rel="noreferrer" className="min-w-0 flex-1 hover:underline">
                   <div className="line-clamp-2 text-sm">{x.title}</div>
-                  <div className="text-xs text-slate-500">{[x.store, SOURCE[x.source] ?? x.source, ago(x.seen_at)].filter(Boolean).join(" · ")}</div>
+                  <div className="text-xs text-slate-500">
+                    {x.score != null && <span className={`mr-1 rounded px-1 font-semibold ${x.score >= 70 ? "bg-green-600 text-white" : x.score >= 45 ? "bg-amber-500 text-white" : "bg-slate-300 text-slate-800"}`} title="Deal score: discount, lowest price seen, store, freshness">{x.score}</span>}
+                    {[x.store, SOURCE[x.source] ?? x.source, ago(x.seen_at)].filter(Boolean).join(" · ")}
+                  </div>
                 </a>
                 <div className="shrink-0 text-right">
                   {x.price_cents != null && <div className="font-semibold">{money(x.price_cents)}</div>}
@@ -112,8 +172,21 @@ export default function HomeDeals() {
                 </div>
                 <div className="flex shrink-0 flex-col gap-1">
                   <Link to={`/add?q=${encodeURIComponent(x.title.replace(/^\s*\[[^\]]*\]\s*/, ""))}`} className="btn-ghost px-2 py-0.5 text-xs">Watch</Link>
+                  <button className="text-xs text-slate-500 hover:underline" onClick={() => showHistory(x.id)}>History</button>
                   <button className="text-xs text-slate-400 hover:text-red-600" onClick={() => api(`/api/category-deals/${x.id}/dismiss`, { method: "POST" }).then(load)}>Hide</button>
                 </div>
+              </div>
+              {hist[x.id] && (
+                <div className="mt-1 rounded bg-slate-50 p-2 text-xs dark:bg-slate-800/60">
+                  {hist[x.id] === "loading" ? "Loading…" : (() => {
+                    const h = hist[x.id] as DealHistory;
+                    return <>
+                      <div className="font-medium">{h.verdict ?? "No price history yet"}</div>
+                      {h.count > 0 && <div className="text-slate-500">Lowest {money(h.low_cents)} · typical {money(h.typical_cents)} · highest {money(h.high_cents)} · seen {h.count} time{h.count === 1 ? "" : "s"}</div>}
+                    </>;
+                  })()}
+                </div>
+              )}
               </div>
             ))}
           </div>

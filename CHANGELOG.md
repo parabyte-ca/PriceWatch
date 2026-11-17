@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.4.0] - 2026-11-17
+### Added
+- Receipt photo (Bought page): photograph a store receipt and Claude reads the store, date and lines and suggests which of your items each line is. You tick and correct the lines, then Save: each becomes a purchase with price protection. Nothing is recorded before Save
+- Pay with: the comparison on Add shows the price after your cash-back and card perks at each store, and buy alerts end with "Pay with: ... ($x back)" using the perks entered in Household admin
+- Category forecasts on Home: once a category has enough deals, a line shows when its discounts have been deepest (Black Friday week, Cyber Monday, Boxing Week, before Christmas or regular weeks) and the average discount in each. Category deals are now kept for a year for this (Home still shows the last 10 days)
+- Deals by category can be shown as a list or as tiles (picture, discount, score, price); the choice is remembered on each device
+
+## [1.3.0] - 2026-11-17
+### Added
+- Product photos: store listings on Add and the item page, category deals and Home rows show the product's picture (from Google Shopping; forum deals use the thread's preview picture, one polite page visit each). An item without a picture takes the best store's, and "Add a photo" / "Change photo" lets you use your own (kept in the data folder)
+- Deal score (0 to 100) on category deals and drops: discount, whether it is the lowest price seen, a known Canadian store, forum-vetted, and freshness. Deals are sorted by it
+- Price history for any deal: every price a deal's link is seen at is kept; History shows the lowest, typical and highest price and whether today's is the lowest seen
+- Gift claims ("I'll buy this"): on shared lists, members tap I'll buy this and everyone else on the list sees who is getting it, except the list's owner, so surprises stay surprises. The family link has "I'll get this" too (a name, no account; the same browser can undo it)
+
 ## [1.2.0] - 2026-11-16
 ### Added
 - Photo search on Add: take a photo of a product or its box and Claude reads what it is (and the barcode number when visible), then the comparison runs. The photo is not stored

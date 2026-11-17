@@ -23,6 +23,10 @@ _SECOND_HAND = {"refurbished": "refurbished", "used": "used", "pre-owned": "used
 LOCAL_RE = re.compile(r"(in stock (nearby|at|in store)|pick ?up|in store|nearby|curbside|\d+(\.\d+)? km)", re.I)
 
 
+def _https(url) -> str | None:
+    return url if isinstance(url, str) and url.startswith("https://") else None
+
+
 def local_note(row: dict) -> str | None:
     """Google's nearby-store note for a result ("In stock nearby", "Pick up today"), when it shows one."""
     texts = [*(row.get("extensions") or []), row.get("tag"), row.get("delivery"), row.get("store_availability")]
@@ -62,6 +66,7 @@ def shopping_item_to_candidate(row: dict, provider: str) -> Candidate | None:
         extra={"product_id": row.get("product_id"), "google_link": row.get("product_link"),
                "immersive_token": row.get("immersive_product_page_token"),
                "local": local_note(row),
+               "image": _https(row.get("thumbnail") or next(iter(row.get("thumbnails") or []), None)),
                "old_price_cents": parse_price(row.get("extracted_old_price") if row.get("extracted_old_price")
                                               is not None else row.get("old_price"))},
     )
