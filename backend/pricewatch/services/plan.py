@@ -85,7 +85,8 @@ def build(db: Session, user: User, today: date | None = None) -> dict:
             "total_expected_cents": expected_total,
             "left_cents": (budget - now_total) if budget is not None else None,
             "events": [{"name": events.EVENT_LABELS.get(k, k), "date": events.EVENTS_2026[k][0].isoformat()}
-                       for k in LIVE_DAYS]}
+                       for k in LIVE_DAYS],
+            "search_budget": search_budget(db, today)}
 
 
 def checklist_text(plan: dict, day: str) -> str:
@@ -117,3 +118,107 @@ def send_checklists(db: Session, now_utc=None) -> int:
                         title=f"Your {day} plan", body=checklist_text(p, day), url="/plan")
         sent += bool(a)
     return sent
+
+
+LIVE_HOURS = (7, 23)  # live re-checks run from 07:00 to 23:00 local on sale days
+INTERVALS = (1, 2, 3, 4, 6, 8)  # hours between re-checks of one item, tried in order
+QUIET = ("Nothing dropped lately. On sale days this note comes once an hour, "
+         "only when something dropped.")
+
+
+def _live_dates_left(today: date) -> list[tuple[str, date]]:
+    """This month's live sale days from today on."""
+    out = []
+    for key in LIVE_DAYS:
+        start, end = events.EVENTS_2026[key]
+        d = start
+        while d <= end:
+            if d >= today and (d.year, d.month) == (today.year, today.month):
+                out.append((events.EVENT_LABELS.get(key, key), d))
+            d = date.fromordinal(d.toordinal() + 1)
+    return out
+
+
+def search_budget(db: Session, today: date | None = None) -> dict | None:
+    """Will this month's search limit last through the sale days left, and how often can items be re-checked?
+
+    None when no search provider or no monthly limit is set. Each item re-check is about one search (store lists
+    are cached for a week); each deal category is searched every 6 hours on sale days.
+    """
+    import calendar
+
+    from ..models import DealCategory
+    from ..serp import get_provider
+    from .discovery import month_usage
+
+    provider = get_provider(None)
+    limit = int(settings_store.get(db, "serp_monthly_limit") or 0)
+    if provider is None or provider.name == "claude" or not limit:
+        return None
+    today = today or events.local_now().date()
+    used = month_usage(db, provider.name)
+    left = max(0, limit - used)
+    items = len(db.scalars(select(Item.id).where(Item.active.is_(True))).all())
+    cats = len(db.scalars(select(DealCategory.id).where(DealCategory.active.is_(True))).all())
+    live = _live_dates_left(today)
+    month_days = calendar.monthrange(today.year, today.month)[1]
+    normal_days = max(0, month_days - today.day + 1 - len(live))
+    reserve = normal_days * min(items * 2, limit / month_days)  # ordinary days keep their even pace
+    hours = LIVE_HOURS[1] - LIVE_HOURS[0]
+
+    def cost(interval: int) -> int:
+        per_day = min(items * (hours // interval), 30 * hours) + cats * 4
+        return per_day * len(live)
+
+    spare = left - reserve
+    interval = next((h for h in INTERVALS if cost(h) <= spare), None)
+    return {"limit": limit, "used": used, "left": left, "items": items, "categories": cats,
+            "live_days": [{"name": n, "date": d.isoformat()} for n, d in live],
+            "hourly_cost": cost(1), "reserve": round(reserve), "interval_hours": interval or INTERVALS[-1],
+            "fits_hourly": interval == 1, "short_by": max(0, round(cost(1) - spare)),
+            "enough": interval is not None}
+
+
+def live_interval_hours(db: Session) -> int:
+    b = search_budget(db)
+    return b["interval_hours"] if b else 1
+
+
+async def practice(db: Session, user: User) -> dict:
+    """A rehearsal of a sale day, now: the checklist, a re-check of up to 3 plan items and a note of recent drops."""
+    from ..serp import get_provider
+    from ..timeutil import utcnow
+    from .alerts import money, raise_alert
+    from .deals import todays_drops
+    from .discovery import DiscoveryError, _under_limit, discover
+
+    stamp = utcnow().strftime("%Y%m%d%H%M%S")
+    p = build(db, user)
+    if not p["items"]:
+        return {"ok": False, "message": "Pick at least one item first."}
+    day = live_day() or "Black Friday"
+    sent = raise_alert(db, item=None, rule="plan", key=f"plan-practice:{stamp}", user_id=user.id,
+                       title=f"Practice: your {day} plan", body=checklist_text(p, day), url="/plan")
+    refreshed = 0
+    provider = get_provider(None)
+    if provider is not None:
+        for row in p["items"][:3]:
+            item = db.get(Item, row["item_id"])
+            if item is None or not _under_limit(db, provider):
+                break
+            try:
+                await discover(db, item, force=True)
+                refreshed += 1
+            except DiscoveryError:
+                break
+    drops = todays_drops(db, user, limit=10, min_pct=2.0)
+    body = "\n".join(f"- {d['item']}: {money(d['price_cents'])} at {d['store']} (-{d['drop_pct']:g}%)"
+                     for d in drops) or QUIET
+    raise_alert(db, item=None, rule="live", key=f"live-practice:{stamp}", user_id=user.id,
+                title=f"Practice: {len(drops)} recent price drop{'' if len(drops) == 1 else 's'}", body=body, url="/")
+    status = sent.status if sent else "not sent"
+    return {"ok": status == "sent", "status": status, "refreshed": refreshed, "drops": len(drops),
+            "message": ("Two practice notifications sent." if status == "sent" else
+                        "Notifications were only logged: set up ntfy or app notifications in Settings." if status == "logged"
+                        else "Sending failed: check the notification settings."),
+            "budget": search_budget(db)}

@@ -9,8 +9,13 @@ interface Row {
 }
 interface PlanOut {
   budget_cents: number | null; items: Row[]; total_now_cents: number; total_expected_cents: number;
-  left_cents: number | null; events: { name: string; date: string }[];
+  left_cents: number | null; events: { name: string; date: string }[]; search_budget: Budget | null;
 }
+interface Budget {
+  limit: number; used: number; left: number; items: number; categories: number; live_days: { name: string; date: string }[];
+  hourly_cost: number; reserve: number; interval_hours: number; fits_hourly: boolean; short_by: number; enough: boolean;
+}
+interface Practice { ok: boolean; status?: string; refreshed?: number; drops?: number; message: string }
 
 const WHEN_STYLE: Record<string, string> = {
   now: "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300",
@@ -25,6 +30,21 @@ export default function Plan() {
   const [budget, setBudget] = useState("");
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState("");
+  const [practising, setPractising] = useState(false);
+  const [practice, setPractice] = useState<Practice | null>(null);
+
+  const rehearse = async () => {
+    setPractising(true); setPractice(null);
+    try {
+      const r = await api<Practice>("/api/plan/practice", { method: "POST" });
+      setPractice(r);
+      void load();
+    } catch (e) {
+      setPractice({ ok: false, message: (e as Error).message });
+    } finally {
+      setPractising(false);
+    }
+  };
 
   const load = async () => {
     try {
@@ -65,9 +85,19 @@ export default function Plan() {
               onChange={(e) => setBudget(e.target.value)} onBlur={() => void save(ids)} />
           </label>
           <button className="btn-ghost" onClick={() => setPicking(!picking)}>{picking ? "Done picking" : "Pick items"}</button>
+          {plan.items.length > 0 && (
+            <button className="btn-ghost" disabled={practising} onClick={rehearse}>{practising ? "Practising…" : "Practice run"}</button>
+          )}
         </div>
+        {practice && (
+          <p className={`text-sm ${practice.ok ? "text-green-700 dark:text-green-400" : "text-red-600"}`}>
+            {practice.message}{practice.refreshed ? ` Re-checked ${practice.refreshed} item${practice.refreshed === 1 ? "" : "s"}.` : ""}
+          </p>
+        )}
         {error && <p className="text-sm text-red-600">{error}</p>}
       </div>
+
+      {plan.search_budget && plan.search_budget.live_days.length > 0 && <BudgetNote b={plan.search_budget} />}
 
       {picking && (
         <div className="card space-y-1 text-sm">
@@ -116,6 +146,24 @@ export default function Plan() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Will this month's searches last through the sale days left? */
+function BudgetNote({ b }: { b: Budget }) {
+  const days = b.live_days.map((d) => d.name).join(" and ");
+  const ok = b.fits_hourly;
+  return (
+    <div className={`card text-sm ${ok ? "" : "border-l-4 border-l-amber-500"}`}>
+      <div className="font-medium">{ok ? "✅ Searches will last" : "⚠️ Not enough searches for hourly re-checks"}</div>
+      <p className="text-slate-600 dark:text-slate-300">
+        {b.left} of {b.limit} searches left this month. Re-checking your {b.items} items every hour on {days} takes about {b.hourly_cost}
+        {b.reserve ? `, and the other days need about ${b.reserve}` : ""}.{" "}
+        {ok
+          ? "Items will be re-checked about every hour from 7:00 to 23:00."
+          : `PriceWatch will re-check each item about every ${b.interval_hours} hours instead${b.enough ? "" : " (or less often if searches run out)"}. About ${b.short_by} more searches would allow hourly re-checks: raise the monthly limit in Household admin if your SerpApi plan allows.`}
+      </p>
     </div>
   );
 }

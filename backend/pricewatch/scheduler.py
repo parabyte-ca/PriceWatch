@@ -191,13 +191,15 @@ async def flyers() -> None:
 
 async def live_watch() -> None:
     """Black Friday, Cyber Monday and Boxing Day: morning checklists, hourly price refresh and a digest of what moved."""
-    from .services import deals, discovery, plan
+    from .services import deals, discovery, events, plan
 
     db = session_scope()
     try:
         plan.send_checklists(db)
-        if plan.live_day():
-            await discovery.refresh_stale(db, per_run=10, days=1 / 24, live=True)
+        if plan.live_day() and plan.LIVE_HOURS[0] <= events.local_now().hour < plan.LIVE_HOURS[1]:
+            # as often as the month's search limit allows: hourly when it fits, else every few hours
+            hours = plan.live_interval_hours(db)
+            await discovery.refresh_stale(db, per_run=10, days=hours / 24, live=True)
             deals.live_digest(db)
     except Exception:  # noqa: BLE001
         log.exception("live watch failed")
