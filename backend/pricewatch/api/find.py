@@ -72,7 +72,10 @@ async def _resolve(db: Session, q: str) -> tuple[dict, dict | None]:
         best = found["names"][0] if found["names"] else None
         return {"name": best["title"] if best else digits, "brand": best and best.get("brand"), "model": None,
                 "gtin": digits, "image": None}, None
-    return {"name": q[:300], "brand": None, "model": None, "gtin": None, "image": None}, None
+    from ..services.querytext import tidy
+
+    # typed text or a deal headline: search for the product, not "$96.50, Ultimate $122" and sale words
+    return {"name": tidy(q)[:300], "brand": None, "model": None, "gtin": None, "image": None}, None
 
 
 def _transient(product: dict, query: str | None = None) -> Item:

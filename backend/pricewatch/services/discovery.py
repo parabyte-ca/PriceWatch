@@ -42,7 +42,9 @@ class DiscoveryError(Exception):
 def build_query(item: Item) -> str:
     if item.search_query:
         return item.search_query.strip()
-    parts = [item.brand or "", item.name]
+    from .querytext import tidy
+
+    parts = [item.brand or "", tidy(item.name)]
     if item.model and item.model.lower() not in item.name.lower():
         parts.append(item.model)
     words: list[str] = []

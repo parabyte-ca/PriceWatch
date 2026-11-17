@@ -109,6 +109,7 @@ class ItemOut(ItemBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
     added_by: int | None = None
+    search_terms: str | None = None  # what the price search actually looks for (your query, else a tidy name)
     created_at: UTCDateTime
     updated_at: UTCDateTime
     summary: dict = {}
