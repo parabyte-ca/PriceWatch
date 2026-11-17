@@ -5,6 +5,7 @@
 - A deal category added by a second person stayed empty while someone else in the household saw deals for the same category. Categories are per person, and each waited for its own search. Now people following the same category (any spelling of capitals and spaces) share each search, a newly followed category starts with the recent deals the household has already found, and a category nobody follows yet is searched right away (within the month's search pace) instead of at the next hourly run. Existing empty categories fill on the next hourly run
 ## [1.5.1] - 2026-11-17
 ### Added
+- Your items on Home ("Waiting for a better price" and "Getting set up") can be shown as a list or as tiles (picture, price, target, how far above the season's low); the choice is remembered on each device
 - A short walkthrough after you first sign in (nine steps: adding items, Home, item pages, alerts, after you buy, lists and gifts, the Black Friday plan, Ask PriceWatch), shown once per person and device, and again any time from Me, How PriceWatch works. The same text is in `docs/user-guide.md`, kept in sync by CI
 - Practice run on the Black Friday plan page: sends your sale-day checklist and a "what dropped" note now, and re-checks up to 3 plan items, so you can confirm notifications reach your phone before the day
 - Search budget check on the plan page: whether this month's search limit lasts through the sale days left (Black Friday and Cyber Monday in November, Boxing Day in December), how many searches hourly re-checks need and how many more would be needed
