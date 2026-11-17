@@ -25,7 +25,8 @@ from . import claude, events, settings_store, users
 log = logging.getLogger(__name__)
 PRESETS = ["TVs", "Laptops", "Home electronics", "Kitchen accessories", "Small appliances", "Women's clothing",
            "Men's clothing", "Toys and games", "Video games", "3D printers", "Tools", "Headphones"]
-KEEP_DAYS = 10
+SHOW_DAYS = 10  # deals shown on Home
+KEEP_DAYS = 400  # kept for the per-category forecast
 
 
 # ---------- deal score and price history ----------
@@ -327,17 +328,53 @@ async def refresh_categories(db: Session, per_run: int = 2) -> int:
     return done
 
 
+def _window(d) -> str:
+    """Which sale window a day falls in (local dates)."""
+    m, day = d.month, d.day
+    if m == 11 and 20 <= day <= 28:
+        return "Black Friday week"
+    if (m == 11 and day >= 29) or (m == 12 and day <= 2):
+        return "Cyber Monday"
+    if m == 12 and day >= 26:
+        return "Boxing Week"
+    if m == 12 and 15 <= day <= 25:
+        return "before Christmas"
+    return "regular weeks"
+
+
+def forecast(db: Session, cat: DealCategory, min_deals: int = 8) -> dict | None:
+    """When this category's discounts have been deepest, from the deals PriceWatch has seen (kept 10 days, so this
+    compares windows as they pass). None until there is enough to say anything."""
+    rows = db.scalars(select(CategoryDeal).where(CategoryDeal.category_id == cat.id)).all()
+    by: dict[str, list[int]] = {}
+    for d in rows:
+        if d.discount_pct:
+            by.setdefault(_window(events.local_now(d.seen_at).date()), []).append(d.discount_pct)
+    seen = sum(len(v) for v in by.values())
+    if seen < min_deals:
+        return None
+    avg = {w: round(sum(v) / len(v)) for w, v in by.items() if len(v) >= 3}
+    if not avg:
+        return None
+    best = max(avg, key=avg.get)
+    text = f"Deepest discounts so far: {best} (about {avg[best]}% off on average"
+    others = [f"{w} {p}%" for w, p in sorted(avg.items(), key=lambda x: -x[1]) if w != best]
+    text += f"; {', '.join(others)})" if others else ")"
+    return {"best_window": best, "averages": avg, "deals": seen, "text": text + f", from {seen} deals."}
+
+
 def category_deals(db: Session, user: User, per_category: int = 6) -> list[dict]:
     cats = db.scalars(select(DealCategory).where(DealCategory.user_id == user.id).order_by(DealCategory.name)).all()
     out = []
     for c in cats:
         deals = db.scalars(select(CategoryDeal).where(CategoryDeal.category_id == c.id,
-                                                      CategoryDeal.dismissed.is_(False))
+                                                      CategoryDeal.dismissed.is_(False),
+                                                      CategoryDeal.seen_at >= utcnow() - timedelta(days=SHOW_DAYS))
                            .order_by(CategoryDeal.seen_at.desc()).limit(40)).all()
         for d in deals:
             d.score = score_deal(db, d)  # freshness changes: rescore on read
         deals = sorted(deals, key=lambda d: (-(d.score or 0), -d.seen_at.timestamp()))[:per_category]
-        out.append({"id": c.id, "name": c.name, "min_discount_pct": c.min_discount_pct,
+        out.append({"id": c.id, "name": c.name, "min_discount_pct": c.min_discount_pct, "forecast": forecast(db, c),
                     "max_price_cents": c.max_price_cents, "active": c.active,
                     "last_search_at": c.last_search_at,
                     "deals": [{"id": d.id, "title": d.title, "url": d.url, "store": d.store,

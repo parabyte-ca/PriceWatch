@@ -7,7 +7,7 @@ interface Thread { item_id: number; item: string; title: string; url: string; pr
 interface CatDeal { id: number; title: string; url: string; store: string | null; price_cents: number | null; was_cents: number | null;
   discount_pct: number | null; source: string; seen_at: string; image?: string | null; score?: number | null }
 interface DealHistory { low_cents: number | null; high_cents: number | null; typical_cents: number | null; count: number; verdict: string | null }
-interface Category { id: number; name: string; min_discount_pct: number; deals: CatDeal[]; last_search_at: string | null }
+interface Category { forecast?: { text: string } | null; id: number; name: string; min_discount_pct: number; deals: CatDeal[]; last_search_at: string | null }
 interface HomeDealsData { drops: Drop[]; threads: Thread[]; categories: Category[]; presets: string[] }
 
 const SOURCE: Record<string, string> = { rfd: "RedFlagDeals", google_shopping: "Google Shopping" };
@@ -100,6 +100,7 @@ export default function HomeDeals() {
             ))}
           </div>
         )}
+        {shown?.forecast && <p className="px-1 text-xs text-slate-500">📈 {shown.forecast.text}</p>}
         {shown && (
           <div className="card py-1">
             {shown.deals.length === 0 && (

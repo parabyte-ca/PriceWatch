@@ -26,6 +26,7 @@ from .api import perks as perks_api
 from .api import planning as planning_api
 from .api import purchases as purchases_api
 from .api import push as push_api
+from .api import receipts as receipts_api
 from .api import system as system_api
 from .api import updates as updates_api
 from .auth import AuthMiddleware, bootstrap, load_secret_key
@@ -98,6 +99,7 @@ def create_app() -> FastAPI:
     app.include_router(items_api.router)
     app.include_router(find_api.router)
     app.include_router(deals_api.router)
+    app.include_router(receipts_api.router)
     app.include_router(system_api.router)
     app.include_router(extra_api.router)
     app.include_router(accounts_api.router)

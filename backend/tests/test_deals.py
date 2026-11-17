@@ -156,3 +156,64 @@ def test_item_photo_upload(client):
     bad = client.post(f"/api/items/{item['id']}/photo", json={"image_b64": base64.b64encode(b"x" * 200).decode()})
     assert bad.status_code == 422
     assert client.get("/api/photos/evil.txt").status_code == 404
+
+
+def test_receipt_photo_read_then_save(client, db_session, monkeypatch):
+    from types import SimpleNamespace as NS
+
+    import anthropic
+
+    from pricewatch.api import receipts
+    from pricewatch.models import Purchase
+    from pricewatch.services import claude
+
+    item = client.post("/api/items", json={"name": "Nintendo Switch 2"}).json()
+    monkeypatch.setattr(claude, "api_key", lambda: "sk-ant-test")
+
+    class API:
+        @property
+        def messages(self):
+            return self
+
+        async def parse(self, **kw):
+            assert f"{item['id']}: Nintendo Switch 2" in kw["messages"][0]["content"][1]["text"]
+            return NS(usage=None, parsed_output=receipts.Receipt(is_receipt=True, store="Best Buy", date="2026-11-28",
+                      lines=[receipts.ReceiptLine(name="NINTENDO SW2 CNSL", price_cents=59999, item_id=item["id"]),
+                             receipts.ReceiptLine(name="HDMI CABLE", price_cents=1999, item_id=999999)]))
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", lambda **kw: API())
+    r = client.post("/api/purchases/receipt/read", json={"image_b64": "A" * 200}).json()
+    assert r["domain"] == "bestbuy.ca" and [ln["item_id"] for ln in r["lines"]] == [item["id"], None]
+    assert db_session.query(Purchase).count() == 0  # nothing recorded before Save
+    s = client.post("/api/purchases/receipt/save", json={"store": "Best Buy", "date": "2026-11-28",
+                                                          "lines": [{"item_id": item["id"], "price_cents": 59999}]})
+    assert s.json() == {"saved": 1, "skipped": 0}
+    p = db_session.query(Purchase).one()
+    assert p.price_cents == 59999 and str(p.purchased_on) == "2026-11-28"
+
+
+def test_category_forecast(client, db_session):
+    from datetime import datetime
+
+    from pricewatch.models import CategoryDeal, DealCategory
+
+    cat_id = client.post("/api/deal-categories", json={"name": "TVs"}).json()["id"]
+    cat = db_session.get(DealCategory, cat_id)
+    assert deals.forecast(db_session, cat) is None  # not enough yet
+    for day, pct in [(24, 40), (25, 35), (26, 30), (10, 15), (11, 10), (12, 20), (13, 15), (14, 12)]:
+        db_session.add(CategoryDeal(category_id=cat_id, title="TV", url=f"https://x/{day}", price_cents=100 - pct,
+                                    was_cents=100, source="rfd", seen_at=datetime(2026, 11, day, 17)))
+    db_session.commit()
+    f = deals.forecast(db_session, cat)
+    assert f["best_window"] == "Black Friday week" and f["averages"]["Black Friday week"] == 35
+
+
+def test_pay_with_text():
+    from pricewatch.services.alerts import pay_with_text
+
+    best = {"perks": [{"label": "Card", "percent": 5}], "perks_saving_cents": 2500}
+    assert pay_with_text(best) == " Pay with: Card 5% ($25.00 back)."
+    assert pay_with_text({}) == ""
