@@ -217,3 +217,39 @@ def test_pay_with_text():
     best = {"perks": [{"label": "Card", "percent": 5}], "perks_saving_cents": 2500}
     assert pay_with_text(best) == " Pay with: Card 5% ($25.00 back)."
     assert pay_with_text({}) == ""
+
+
+def test_same_category_shared_between_people(client, db_session, monkeypatch):
+    """A second person following "3D printers" gets the first person's deals, and one search serves both."""
+    from pricewatch.models import CategoryDeal, DealCategory, User
+    from pricewatch.serp.base import Candidate
+    from pricewatch.timeutil import utcnow
+
+    admin = db_session.query(User).first()
+    other = User(username="amoote", display_name="Alan", role="member", password_hash="x")
+    db_session.add(other)
+    db_session.flush()
+    a = DealCategory(user_id=admin.id, name="3D printers", min_discount_pct=20, last_search_at=utcnow())
+    db_session.add(a)
+    db_session.flush()
+    db_session.add(CategoryDeal(category_id=a.id, title="Bambu A1", url="https://x.ca/a1", price_cents=30000,
+                                was_cents=50000, source="google_shopping", seen_at=utcnow()))
+    db_session.commit()
+
+    b = DealCategory(user_id=other.id, name="3d  Printers", min_discount_pct=20)
+    db_session.add(b)
+    db_session.commit()
+    assert deals.copy_from_others(db_session, b) == 1
+    assert b.last_search_at is not None
+    assert deals.copy_from_others(db_session, b) == 0  # no duplicates
+
+    class P:
+        name = "serpapi"
+
+        async def on_sale(self, q, client):
+            return [Candidate(title="Prusa MK4", url="https://x.ca/mk4", price_cents=60000,
+                              extra={"old_price_cents": 100000})]
+    monkeypatch.setattr("pricewatch.serp.get_provider", lambda name=None: P())
+    asyncio.run(deals.search_category(db_session, a))
+    urls = {d.url for d in db_session.query(CategoryDeal).filter(CategoryDeal.category_id == b.id)}
+    assert urls == {"https://x.ca/a1", "https://x.ca/mk4"}

@@ -61,6 +61,52 @@ function Row({ i, list }: { i: Item; list?: string }) {
   );
 }
 
+function Tile({ i, list }: { i: Item; list?: string }) {
+  const s = i.summary;
+  const price = hasPrice(i) ? s.best_landed_cents : online(i)?.price_cents ?? null;
+  const above = s.distance_to_low_pct;
+  return (
+    <Link to={`/items/${i.id}`} className="card flex flex-col gap-2 p-3 transition hover:shadow-md">
+      <div className="relative">
+        {i.image_url ? <img src={i.image_url} alt="" loading="lazy" className="aspect-square w-full rounded bg-white object-contain" />
+          : <div className="flex aspect-square w-full items-center justify-center rounded bg-slate-100 text-4xl dark:bg-slate-800" aria-hidden>🎁</div>}
+        {above != null && above > 0 && (
+          <span className="absolute right-1 top-1 rounded bg-amber-500 px-1 text-xs font-semibold text-white" title="Above the lowest price this season">+{above}%</span>
+        )}
+      </div>
+      <div className="line-clamp-2 text-sm font-medium">{i.name}</div>
+      <div className="mt-auto">
+        <div className="font-semibold">{price != null ? money(price) : "—"}</div>
+        <div className="truncate text-xs text-slate-500">
+          {i.target_price_cents != null ? `target ${money(i.target_price_cents)}` : !hasPrice(i) && online(i) ? "online, before tax" : s.best?.retailer ?? ""}
+        </div>
+        {list && <div className="truncate text-xs text-slate-400">{list}</div>}
+      </div>
+    </Link>
+  );
+}
+
+type View = "list" | "tiles";
+
+function ViewToggle({ view, onPick }: { view: View; onPick: (v: View) => void }) {
+  return (
+    <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs dark:border-slate-700" role="group" aria-label="Item view">
+      {(["list", "tiles"] as const).map((v) => (
+        <button key={v} onClick={() => onPick(v)} aria-pressed={view === v}
+          className={`px-2 py-1 ${view === v ? "bg-red-700 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}>
+          {v === "list" ? "☰ List" : "▦ Tiles"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Items({ items, view, listName }: { items: Item[]; view: View; listName: (id: number | null) => string | undefined }) {
+  return view === "tiles"
+    ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">{items.map((i) => <Tile key={i.id} i={i} list={listName(i.list_id)} />)}</div>
+    : <div className="card py-1">{items.map((i) => <Row key={i.id} i={i} list={listName(i.list_id)} />)}</div>;
+}
+
 /** Home: what to buy now, what to wait on, and what is still being set up. Replaces Wishlist and Board. */
 export default function Home() {
   const { lists } = useSession();
@@ -68,6 +114,10 @@ export default function Home() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [mode, setMode] = useState<string | null>(null);
+  const [view, setView] = useState<View>(() => {
+    try { return localStorage.getItem("pw-item-view") === "tiles" ? "tiles" : "list"; } catch { return "list"; }
+  });
+  const pickView = (v: View) => { setView(v); try { localStorage.setItem("pw-item-view", v); } catch { /* private window */ } };
   const [params, setParams] = useSearchParams();
   const [listId, setListId] = useState<string>(() => {
     const fromLink = params.get("list");
@@ -153,15 +203,21 @@ export default function Home() {
 
       {groups.wait.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-lg font-semibold">Waiting for a better price <span className="text-sm font-normal text-slate-500">{groups.wait.length}</span></h2>
-          <div className="card py-1">{groups.wait.map((i) => <Row key={i.id} i={i} list={listName(i.list_id)} />)}</div>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">Waiting for a better price <span className="text-sm font-normal text-slate-500">{groups.wait.length}</span></h2>
+            <ViewToggle view={view} onPick={pickView} />
+          </div>
+          <Items items={groups.wait} view={view} listName={listName} />
         </section>
       )}
 
       {groups.setup.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-lg font-semibold">Getting set up <span className="text-sm font-normal text-slate-500">{groups.setup.length}</span></h2>
-          <div className="card py-1">{groups.setup.map((i) => <Row key={i.id} i={i} list={listName(i.list_id)} />)}</div>
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-lg font-semibold">Getting set up <span className="text-sm font-normal text-slate-500">{groups.setup.length}</span></h2>
+            {groups.wait.length === 0 && <ViewToggle view={view} onPick={pickView} />}
+          </div>
+          <Items items={groups.setup} view={view} listName={listName} />
         </section>
       )}
     </div>
