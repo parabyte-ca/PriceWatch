@@ -86,3 +86,34 @@ def test_live_refresh_keeps_the_monthly_limit(db_session, monkeypatch):
     assert not discovery._under_limit(db_session, P())
     monkeypatch.setattr(discovery, "month_usage", lambda db, name: 99)
     assert discovery._under_limit(db_session, P())
+
+
+def test_search_budget_picks_an_interval_that_fits(client, db_session, monkeypatch):
+    from pricewatch.services import discovery, settings_store
+
+    class P:
+        name = "serpapi"
+    monkeypatch.setattr("pricewatch.serp.get_provider", lambda name=None: P())
+    for n in range(20):
+        client.post("/api/items", json={"name": f"Thing {n}"})
+    settings_store.update(db_session, {"serp_monthly_limit": 5000})
+    monkeypatch.setattr(discovery, "month_usage", lambda db, name: 1000)
+    b = plan.search_budget(db_session, date(2026, 11, 17))
+    assert [d["name"] for d in b["live_days"]] == ["Black Friday", "Cyber Monday"]
+    assert b["fits_hourly"] and b["interval_hours"] == 1 and b["short_by"] == 0
+    settings_store.update(db_session, {"serp_monthly_limit": 1500})
+    b = plan.search_budget(db_session, date(2026, 11, 17))
+    assert not b["fits_hourly"] and b["interval_hours"] > 1 and b["short_by"] > 0
+    assert plan.search_budget(db_session, date(2026, 12, 1))["live_days"][0]["name"] == "Boxing Day"
+
+
+def test_practice_run_sends_two_notes(client, db_session, monkeypatch):
+    monkeypatch.setattr("pricewatch.serp.get_provider", lambda name=None: None)
+    a = _item_with_prices(client, db_session, "Nintendo Switch 2", [(utcnow(), 59999)])
+    client.put("/api/plan", json={"item_ids": []})
+    assert client.post("/api/plan/practice").json()["ok"] is False
+    client.put("/api/plan", json={"item_ids": [a["id"]]})
+    r = client.post("/api/plan/practice").json()
+    assert r["status"] in ("sent", "logged") and r["refreshed"] == 0
+    rules = sorted(x.rule_type for x in db_session.query(Alert).all())
+    assert rules == ["live", "plan"]

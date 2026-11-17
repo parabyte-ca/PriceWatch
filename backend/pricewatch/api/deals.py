@@ -129,3 +129,11 @@ def put_plan(body: PlanIn, db: Session = Depends(get_db), me: User = Depends(cur
 
     plan.save(db, me, body.budget_cents, body.item_ids)
     return plan.build(db, me)
+
+
+@router.post("/plan/practice")
+async def practice_plan(db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """Rehearse a sale day now: the checklist, a re-check of up to 3 plan items and a note of recent drops."""
+    from ..services import plan
+
+    return await plan.practice(db, me)

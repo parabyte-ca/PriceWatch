@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import AskPanel from "./components/AskPanel";
 import { UpdateBar } from "./components/UpdateBar";
+import Walkthrough, { markTourDone, tourDone } from "./components/Walkthrough";
 import { isActive, readPending, type UpdateProgressInfo } from "./lib/updateProgress";
 import AddItem from "./pages/AddItem";
 import Basket from "./pages/Basket";
@@ -26,7 +27,7 @@ interface MeInfo {
   user?: CurrentUser;
 }
 
-const ME_PATHS = ["/me", "/purchases", "/savings", "/settings", "/system", "/basket"];
+const ME_PATHS = ["/me", "/guide", "/plan", "/purchases", "/savings", "/settings", "/system", "/basket"];
 
 const ICONS: Record<string, JSX.Element> = {
   home: <path d="M3 11l9-7 9 7v9a1 1 0 01-1 1h-5v-6H9v6H4a1 1 0 01-1-1z" />,
@@ -67,6 +68,16 @@ export default function App() {
     return () => clearInterval(t);
   }, [isAdmin, updBusy, updOffline]);
   const [version, setVersion] = useState("");
+  const navigate = useNavigate();
+  const [tour, setTour] = useState(false);
+  useEffect(() => {
+    if (me?.authenticated && me.user && !tourDone(me.user.id)) setTour(true);
+  }, [me?.authenticated, me?.user]);
+  const closeTour = () => {
+    if (me?.user) markTourDone(me.user.id);
+    setTour(false);
+    if (path === "/guide") navigate("/me");
+  };
   const [lists, setLists] = useState<ListInfo[]>([]);
   const reloadLists = useCallback(() => {
     api<ListInfo[]>("/api/lists").then(setLists).catch(() => setLists([]));
@@ -94,6 +105,7 @@ export default function App() {
     <SessionContext.Provider value={{ user: me.user || null, lists, reloadLists }}>
     <div className="mx-auto max-w-6xl px-4 pb-[calc(6rem+env(safe-area-inset-bottom))] md:pb-16">
       {isAdmin && <UpdateBar summary={upd} offline={updOffline} />}
+      {(tour || path === "/guide") && <Walkthrough onClose={closeTour} />}
       <header className="flex items-center justify-between gap-2 pt-4">
         <NavLink to="/" className="flex min-w-0 items-center gap-2 text-lg font-bold">
           <img src="/icon.svg" alt="" className="h-7 w-7 shrink-0" /> <span className="truncate">PriceWatch</span>
@@ -127,6 +139,7 @@ export default function App() {
         <Route path="/board" element={<Navigate to="/" replace />} />
         <Route path="/basket" element={<Basket />} />
         <Route path="/plan" element={<PlanPage />} />
+        <Route path="/guide" element={<Me passwordMode={me.mode === "password"} onSignOut={() => api("/api/auth/logout", { method: "POST" }).then(refresh)} />} />
         <Route path="/lists" element={<Lists />} />
         <Route path="/purchases" element={<Purchases />} />
         <Route path="/savings" element={<Savings />} />

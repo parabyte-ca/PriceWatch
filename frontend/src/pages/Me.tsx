@@ -40,6 +40,7 @@ export default function Me({ onSignOut, passwordMode }: { onSignOut: () => void;
         <Tile to="/savings" icon="💰" title="Savings" line={total ? `${money(saved)} saved so far` : undefined} />
         <Tile to="/plan" icon="🛍️" title="Black Friday plan" line="What to buy, when, and your budget" />
         <Tile to="/basket" icon="🛒" title="Plan a basket" line="Cheapest split across stores" />
+        <Tile to="/guide" icon="🧭" title="How PriceWatch works" line="A two-minute walkthrough" />
         <Tile to="/settings" icon="⚙️" title="Settings" line="Alerts, province, how eager to buy" />
         {user?.role === "admin" && <Tile to="/system" icon="🛠️" title="Household admin" line="Updates, stores, perks, Claude" />}
       </div>
