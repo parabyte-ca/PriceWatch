@@ -27,6 +27,7 @@ not the retailer's "was" price, decides whether a sale is real.
 - Simple to use: four tabs (Home, Add, Lists, Me), "Buy now" at the top of Home, and three-way presets for how eager to buy and when to be notified; every number is still there under Advanced
 - Order-email import: forward a store's order confirmation to a dedicated mailbox and the purchase is recorded with its price protection, no typing
 - Home Assistant sensors (buy-now count, claimable money, every item's price and verdict); see `docs/home-assistant.md`
+- A short walkthrough on first sign-in (again any time from Me, How PriceWatch works); the same text is in `docs/user-guide.md`
 - "Will it get cheaper?" estimate per item from its own history and the sale calendar, with reasons
 - Black Friday plan: your items, a budget, and when and where to buy each; a checklist on Black Friday, Cyber Monday and Boxing Day mornings, hourly re-checks and an hourly "what dropped" note on those days
 - Weekly report every Sunday, optionally summarised by Claude Haiku
@@ -63,6 +64,8 @@ not the retailer's "was" price, decides whether a sale is real.
 - `/healthz` (database writable, data freshness), Prometheus `/metrics`, structured JSON logs, nightly `VACUUM INTO` backup at 03:30
 - Sign-in per person (scrypt password hashes, rate-limited), personal API tokens, or `none` behind reverse proxy authentication (everyone acts as the admin)
 - Mobile-first UI, installable as a home-screen app
+
+New to the app? See the [user guide](docs/user-guide.md) (the same walkthrough the app shows on first sign-in).
 
 ## Requirements
 - Docker with the compose plugin (TrueNAS SCALE apps host)

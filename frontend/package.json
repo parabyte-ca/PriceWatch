@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "guide": "node scripts/user-guide.mjs src/components/Walkthrough.tsx ../docs/user-guide.md"
   },
   "dependencies": {
     "react": "18.3.1",

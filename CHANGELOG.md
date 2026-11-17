@@ -2,6 +2,7 @@
 
 ## [1.5.1] - 2026-11-17
 ### Added
+- A short walkthrough after you first sign in (nine steps: adding items, Home, item pages, alerts, after you buy, lists and gifts, the Black Friday plan, Ask PriceWatch), shown once per person and device, and again any time from Me, How PriceWatch works. The same text is in `docs/user-guide.md`, kept in sync by CI
 - Practice run on the Black Friday plan page: sends your sale-day checklist and a "what dropped" note now, and re-checks up to 3 plan items, so you can confirm notifications reach your phone before the day
 - Search budget check on the plan page: whether this month's search limit lasts through the sale days left (Black Friday and Cyber Monday in November, Boxing Day in December), how many searches hourly re-checks need and how many more would be needed
 
