@@ -278,16 +278,67 @@ async def search_category(db: Session, cat: DealCategory, client: httpx.AsyncCli
         async def search(self, query, client):
             return await provider.on_sale(query, client)
 
-    key = f"deals:{cat.name.lower()}"
+    key = f"deals:{cat_key(cat.name)}"
     try:
         cands, _ = await run_search(db, None, _OnSale(), key[:300], True, client)  # due: always fresh
     except DiscoveryError as exc:
         log.info("category search skipped: %s", exc)
         return 0
-    cat.last_search_at = utcnow()
-    added = 0
     for c in cands:
         record_sighting(db, c.url, c.price_cents)
+    added = 0
+    # one search serves everyone following a category of the same name, each with their own discount and price rules
+    for each in same_name(db, cat):
+        each.last_search_at = utcnow()
+        added += _keep(db, each, cands)
+    db.commit()
+    return added
+
+
+def cat_key(name: str) -> str:
+    return " ".join(name.lower().split())
+
+
+def same_name(db: Session, cat: DealCategory) -> list[DealCategory]:
+    """This category and everyone else's with the same name ("3D printers" and "3d  printers" match)."""
+    key = cat_key(cat.name)
+    others = [c for c in db.scalars(select(DealCategory).where(DealCategory.active.is_(True))).all()
+              if c.id != cat.id and cat_key(c.name) == key]
+    return [cat, *others]
+
+
+def copy_from_others(db: Session, cat: DealCategory) -> int:
+    """A newly followed category starts with the recent deals of anyone already following the same category."""
+    others = same_name(db, cat)[1:]
+    if not others:
+        return 0
+    seen = {u for (u,) in db.execute(select(CategoryDeal.url).where(CategoryDeal.category_id == cat.id)).all()}
+    copied = 0
+    for o in others:
+        for d in db.scalars(select(CategoryDeal).where(CategoryDeal.category_id == o.id,
+                                                       CategoryDeal.seen_at >= utcnow() - timedelta(days=SHOW_DAYS))
+                            ).all():
+            pct = d.discount_pct
+            if d.url in seen or (cat.max_price_cents and d.price_cents and d.price_cents > cat.max_price_cents):
+                continue
+            if d.source == "google_shopping" and pct is not None and pct < (cat.min_discount_pct or 0):
+                continue
+            seen.add(d.url)
+            db.add(CategoryDeal(category_id=cat.id, title=d.title, url=d.url, store=d.store, price_cents=d.price_cents,
+                                was_cents=d.was_cents, source=d.source, seen_at=d.seen_at, image_url=d.image_url,
+                                score=d.score))
+            copied += 1
+    searched = [o.last_search_at for o in others if o.last_search_at]
+    if searched:
+        cat.last_search_at = max(searched)
+    db.commit()
+    return copied
+
+
+def _keep(db: Session, cat: DealCategory, cands: list) -> int:
+    """Add the search listings that meet this category's discount and price rules."""
+    added = 0
+    for c in cands:
         was = (c.extra or {}).get("old_price_cents")
         if not (c.price_cents and was and was > c.price_cents):
             continue
@@ -304,7 +355,6 @@ async def search_category(db: Session, cat: DealCategory, client: httpx.AsyncCli
         db.flush()
         d.score = score_deal(db, d)
         added += 1
-    db.commit()
     return added
 
 
@@ -315,6 +365,12 @@ async def refresh_categories(db: Session, per_run: int = 2) -> int:
 
     db.query(CategoryDeal).filter(CategoryDeal.seen_at < utcnow() - timedelta(days=KEEP_DAYS)).delete()
     db.commit()
+    # categories someone else in the household also follows: share their recent deals with an empty one
+    since = utcnow() - timedelta(days=SHOW_DAYS)
+    for cat in db.scalars(select(DealCategory).where(DealCategory.active.is_(True))).all():
+        if not db.scalar(select(CategoryDeal.id).where(CategoryDeal.category_id == cat.id,
+                                                       CategoryDeal.seen_at >= since).limit(1)):
+            copy_from_others(db, cat)
     provider = get_provider("serpapi")
     if provider is None:
         return 0

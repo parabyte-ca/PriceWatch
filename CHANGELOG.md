@@ -1,5 +1,8 @@
 # Changelog
 
+## [1.5.2] - 2026-11-17
+### Fixed
+- A deal category added by a second person stayed empty while someone else in the household saw deals for the same category. Categories are per person, and each waited for its own search. Now people following the same category (any spelling of capitals and spaces) share each search, a newly followed category starts with the recent deals the household has already found, and a category nobody follows yet is searched right away (within the month's search pace) instead of at the next hourly run. Existing empty categories fill on the next hourly run
 ## [1.5.1] - 2026-11-17
 ### Added
 - A short walkthrough after you first sign in (nine steps: adding items, Home, item pages, alerts, after you buy, lists and gifts, the Black Friday plan, Ask PriceWatch), shown once per person and device, and again any time from Me, How PriceWatch works. The same text is in `docs/user-guide.md`, kept in sync by CI

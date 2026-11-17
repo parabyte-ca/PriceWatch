@@ -1,6 +1,6 @@
 """Deals on Home: today's drops on your items, matching forum threads, and deals in categories you follow."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -26,7 +26,8 @@ class CategoryIn(BaseModel):
 
 
 @router.post("/deal-categories", status_code=201)
-async def add_category(body: CategoryIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
+async def add_category(body: CategoryIn, background: BackgroundTasks, db: Session = Depends(get_db),
+                       me: User = Depends(current_user)):
     name = " ".join(body.name.split())
     if db.scalar(select(DealCategory.id).where(DealCategory.user_id == me.id, DealCategory.name == name)):
         raise HTTPException(409, "You already follow that category")
@@ -58,7 +59,30 @@ async def add_category(body: CategoryIn, db: Session = Depends(get_db), me: User
                 db.add(m.CategoryDeal(category_id=cat.id, title=r["title"][:500], url=r["link"][:1000], store=tag,
                                       price_cents=price, source="rfd"))
         db.commit()
+    # someone in the household already follows it: share their recent deals; otherwise search for sales right away
+    if not deals.copy_from_others(db, cat) and cat.last_search_at is None:
+        background.add_task(_first_search, cat.id)
     return {"id": cat.id, "name": cat.name}
+
+
+async def _first_search(cat_id: int) -> None:
+    """The first Google Shopping "on sale" search for a new category, within the month's search pace."""
+    from ..db import session_scope
+    from ..serp import get_provider
+    from ..services.discovery import _within_budget
+
+    db = session_scope()
+    try:
+        cat = db.get(DealCategory, cat_id)
+        provider = get_provider("serpapi")
+        if cat is not None and provider is not None and _within_budget(db, provider):
+            await deals.search_category(db, cat)
+    except Exception:  # noqa: BLE001
+        import logging
+
+        logging.getLogger(__name__).exception("first category search failed")
+    finally:
+        db.close()
 
 
 @router.patch("/deal-categories/{cat_id}")
