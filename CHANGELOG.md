@@ -5,6 +5,7 @@
 - Receipt photo (Bought page): photograph a store receipt and Claude reads the store, date and lines and suggests which of your items each line is. You tick and correct the lines, then Save: each becomes a purchase with price protection. Nothing is recorded before Save
 - Pay with: the comparison on Add shows the price after your cash-back and card perks at each store, and buy alerts end with "Pay with: ... ($x back)" using the perks entered in Household admin
 - Category forecasts on Home: once a category has enough deals, a line shows when its discounts have been deepest (Black Friday week, Cyber Monday, Boxing Week, before Christmas or regular weeks) and the average discount in each. Category deals are now kept for a year for this (Home still shows the last 10 days)
+- Deals by category can be shown as a list or as tiles (picture, discount, score, price); the choice is remembered on each device
 
 ## [1.3.0] - 2026-11-17
 ### Added

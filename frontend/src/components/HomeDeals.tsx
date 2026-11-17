@@ -19,6 +19,10 @@ export default function HomeDeals() {
   const [cat, setCat] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
+  const [view, setView] = useState<"list" | "tiles">(() => {
+    try { return localStorage.getItem("pw-deal-view") === "tiles" ? "tiles" : "list"; } catch { return "list"; }
+  });
+  const pickView = (v: "list" | "tiles") => { setView(v); try { localStorage.setItem("pw-deal-view", v); } catch { /* private window */ } };
   const [hist, setHist] = useState<Record<number, DealHistory | "loading">>({});
   const showHistory = (id: number) => {
     if (hist[id]) { const h = { ...hist }; delete h[id]; setHist(h); return; }
@@ -84,7 +88,19 @@ export default function HomeDeals() {
       <section className="space-y-2">
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-lg font-semibold">Deals by category</h2>
-          {d.categories.length > 0 && <button className="text-sm text-slate-500 hover:underline" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit"}</button>}
+          <div className="flex items-center gap-3">
+            {d.categories.length > 0 && (
+              <div className="inline-flex overflow-hidden rounded-lg border border-slate-300 text-xs dark:border-slate-700" role="group" aria-label="Deal view">
+                {(["list", "tiles"] as const).map((v) => (
+                  <button key={v} onClick={() => pickView(v)} aria-pressed={view === v}
+                    className={`px-2 py-1 ${view === v ? "bg-red-700 text-white" : "hover:bg-slate-100 dark:hover:bg-slate-800"}`}>
+                    {v === "list" ? "☰ List" : "▦ Tiles"}
+                  </button>
+                ))}
+              </div>
+            )}
+            {d.categories.length > 0 && <button className="text-sm text-slate-500 hover:underline" onClick={() => setEditing(!editing)}>{editing ? "Done" : "Edit"}</button>}
+          </div>
         </div>
         {d.categories.length > 0 && (
           <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
@@ -101,7 +117,36 @@ export default function HomeDeals() {
           </div>
         )}
         {shown?.forecast && <p className="px-1 text-xs text-slate-500">📈 {shown.forecast.text}</p>}
-        {shown && (
+        {shown && view === "tiles" && shown.deals.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {shown.deals.map((x) => (
+              <div key={x.id} className="card flex flex-col gap-2 p-3">
+                <a href={x.url} target="_blank" rel="noreferrer" className="relative block">
+                  {x.image ? <img src={x.image} alt="" loading="lazy" className="aspect-square w-full rounded bg-white object-contain" />
+                    : <div className="flex aspect-square w-full items-center justify-center rounded bg-slate-100 text-4xl dark:bg-slate-800" aria-hidden>🏷️</div>}
+                  {x.score != null && <span className={`absolute left-1 top-1 rounded px-1 text-xs font-semibold ${x.score >= 70 ? "bg-green-600 text-white" : x.score >= 45 ? "bg-amber-500 text-white" : "bg-slate-300 text-slate-800"}`} title="Deal score">{x.score}</span>}
+                  {x.discount_pct != null && <span className="absolute right-1 top-1 rounded bg-red-700 px-1 text-xs font-semibold text-white">−{x.discount_pct}%</span>}
+                </a>
+                <a href={x.url} target="_blank" rel="noreferrer" className="line-clamp-2 text-sm hover:underline">{x.title}</a>
+                <div className="mt-auto">
+                  {x.price_cents != null && <div className="font-semibold">{money(x.price_cents)} {x.was_cents != null && <span className="text-xs font-normal text-slate-500 line-through">{money(x.was_cents)}</span>}</div>}
+                  <div className="truncate text-xs text-slate-500">{[x.store, SOURCE[x.source] ?? x.source].filter(Boolean).join(" · ")}</div>
+                </div>
+                <div className="flex items-center justify-between gap-1 text-xs">
+                  <Link to={`/add?q=${encodeURIComponent(x.title.replace(/^\s*\[[^\]]*\]\s*/, ""))}`} className="btn-ghost px-2 py-0.5 text-xs">Watch</Link>
+                  <button className="text-slate-500 hover:underline" onClick={() => showHistory(x.id)}>History</button>
+                  <button className="text-slate-400 hover:text-red-600" onClick={() => api(`/api/category-deals/${x.id}/dismiss`, { method: "POST" }).then(load)}>Hide</button>
+                </div>
+                {hist[x.id] && (
+                  <div className="rounded bg-slate-50 p-1 text-xs dark:bg-slate-800/60">
+                    {hist[x.id] === "loading" ? "Loading…" : ((hist[x.id] as DealHistory).verdict ?? "No price history yet")}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {shown && (view === "list" || shown.deals.length === 0) && (
           <div className="card py-1">
             {shown.deals.length === 0 && (
               <p className="py-2 text-sm text-slate-500">
