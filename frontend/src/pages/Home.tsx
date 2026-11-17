@@ -120,6 +120,12 @@ export default function Home() {
     <div className="space-y-4">
       {mode && <div className="rounded-lg bg-red-700 p-2 text-sm font-semibold text-white">{mode} is on: your top items are checked every 30 minutes.</div>}
 
+      {bfSeason() && (
+        <Link to="/plan" className="block rounded-lg bg-slate-900 p-3 text-sm text-white hover:bg-slate-800 dark:bg-slate-700">
+          🛍️ <b>Black Friday plan</b>: pick what you mean to buy and PriceWatch says when and where. →
+        </Link>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         {(lists.length > 1 || listId) && (
           <select className="input w-auto max-w-full" value={listId} onChange={(e) => setListId(e.target.value)} aria-label="List">
@@ -160,4 +166,9 @@ export default function Home() {
       )}
     </div>
   );
+}
+
+/** November 1 to Boxing Day. */
+function bfSeason(d = new Date()) {
+  return d.getMonth() === 10 || (d.getMonth() === 11 && d.getDate() <= 26);
 }

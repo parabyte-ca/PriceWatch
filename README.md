@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-1.4.0-blue)
+![Version](https://img.shields.io/badge/version-1.5.0-blue)
 
 ## Overview
 Type a product, paste a store link or scan a barcode, and PriceWatch CA shows every Canadian
@@ -28,6 +28,7 @@ not the retailer's "was" price, decides whether a sale is real.
 - Order-email import: forward a store's order confirmation to a dedicated mailbox and the purchase is recorded with its price protection, no typing
 - Home Assistant sensors (buy-now count, claimable money, every item's price and verdict); see `docs/home-assistant.md`
 - "Will it get cheaper?" estimate per item from its own history and the sale calendar, with reasons
+- Black Friday plan: your items, a budget, and when and where to buy each; a checklist on Black Friday, Cyber Monday and Boxing Day mornings, hourly re-checks and an hourly "what dropped" note on those days
 - Weekly report every Sunday, optionally summarised by Claude Haiku
 - Black Friday mode (Nov 26 to Dec 1) and Boxing Week mode (Dec 26 to 31): top hot items every 30 minutes, second digest, shorter alert window
 - Basket planner: the cheapest way to split your buys across stores after free-shipping thresholds, tax and perks, with top-up tips
@@ -180,6 +181,7 @@ Shopping results that only link to Google (no merchant URL) are listed but not a
 ```
 Design note: `docs/design.md`. Operations on TrueNAS (datasets, snapshots, access): `docs/operations.md`.
 Backlog: `BACKLOG.md`.
+Claude skill for working on this repo: `docs/claude-skill/pricewatch/SKILL.md`.
 
 ## Adapter authoring
 Most Canadian retailers publish schema.org JSON-LD, which the generic adapter reads. When a

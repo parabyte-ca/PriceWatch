@@ -251,8 +251,10 @@ async def match_rfd(db: Session, entries: list[dict]) -> int:
 
 
 def search_due(cat: DealCategory, cfg: dict) -> bool:
-    days = 1 if events.sale_mode(cfg) or _sale_season() else 7
-    return cat.last_search_at is None or cat.last_search_at < utcnow() - timedelta(days=days)
+    from .plan import live_day
+
+    hours = 6 if live_day() else 24 if events.sale_mode(cfg) or _sale_season() else 24 * 7
+    return cat.last_search_at is None or cat.last_search_at < utcnow() - timedelta(hours=hours)
 
 
 def _sale_season() -> bool:
@@ -384,3 +386,22 @@ def category_deals(db: Session, user: User, per_category: int = 6) -> list[dict]
                               for d in deals]})
     return out
 
+
+
+def live_digest(db: Session, now_utc=None) -> int:
+    """On live sale days: once an hour, tell each person which of their items dropped in the last hour."""
+    from .alerts import money, raise_alert
+
+    now = now_utc or utcnow()
+    local = events.local_now(now)
+    sent = 0
+    for user in db.scalars(select(User).where(User.active.is_(True))).all():
+        moved = [d for d in todays_drops(db, user, limit=10, min_pct=2.0) if d["seen_at"] >= now - timedelta(hours=1)]
+        if not moved:
+            continue
+        body = "\n".join(f"- {d['item']}: {money(d['price_cents'])} at {d['store']} (-{d['drop_pct']:g}%)" for d in moved)
+        a = raise_alert(db, item=None, rule="live", key=f"live:{local:%Y-%m-%d-%H}", user_id=user.id,
+                        title=f"{len(moved)} price drop{'s' if len(moved) > 1 else ''} in the last hour", body=body,
+                        url="/")
+        sent += bool(a)
+    return sent

@@ -16,6 +16,7 @@ import SettingsPage from "./pages/Settings";
 import SystemPage from "./pages/System";
 import Home from "./pages/Home";
 import Me from "./pages/Me";
+import PlanPage from "./pages/Plan";
 import Shared from "./pages/Shared";
 
 interface MeInfo {
@@ -125,6 +126,7 @@ export default function App() {
         <Route path="/share" element={<AddItem />} />
         <Route path="/board" element={<Navigate to="/" replace />} />
         <Route path="/basket" element={<Basket />} />
+        <Route path="/plan" element={<PlanPage />} />
         <Route path="/lists" element={<Lists />} />
         <Route path="/purchases" element={<Purchases />} />
         <Route path="/savings" element={<Savings />} />
