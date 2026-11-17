@@ -189,6 +189,22 @@ async def flyers() -> None:
         db.close()
 
 
+async def live_watch() -> None:
+    """Black Friday, Cyber Monday and Boxing Day: morning checklists, hourly price refresh and a digest of what moved."""
+    from .services import deals, discovery, plan
+
+    db = session_scope()
+    try:
+        plan.send_checklists(db)
+        if plan.live_day():
+            await discovery.refresh_stale(db, per_run=10, days=1 / 24, live=True)
+            deals.live_digest(db)
+    except Exception:  # noqa: BLE001
+        log.exception("live watch failed")
+    finally:
+        db.close()
+
+
 async def category_deals() -> None:
     """Google Shopping "on sale" searches for deal categories (daily in sale season, weekly otherwise)."""
     from .services import deals
@@ -211,6 +227,7 @@ def start() -> AsyncIOScheduler:
     _scheduler.add_job(nightly_backup, "interval", minutes=10, id="backup", max_instances=1, coalesce=True)
     _scheduler.add_job(deal_feed, "interval", minutes=15, id="deal_feed", max_instances=1, coalesce=True)
     _scheduler.add_job(flyers, "interval", hours=1, id="flyers", max_instances=1, coalesce=True)
+    _scheduler.add_job(live_watch, "interval", minutes=20, id="live_watch", max_instances=1, coalesce=True)
     _scheduler.add_job(category_deals, "interval", hours=1, id="category_deals", max_instances=1, coalesce=True)
     _scheduler.add_job(rediscover, "interval", hours=2, id="rediscover", max_instances=1, coalesce=True)
     _scheduler.add_job(order_emails, "interval", minutes=10, id="order_emails", max_instances=1, coalesce=True)

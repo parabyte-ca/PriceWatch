@@ -50,6 +50,7 @@ DEFAULTS: dict = {
     "deal_feed_threshold": 82.0,
     "flyers_enabled": False,
     "postal_code": "",
+    "bf_plan": {},  # the person's Black Friday plan: {"budget_cents": int | None, "item_ids": [...]}
     "shopping_location": "",  # e.g. "Ottawa, Ontario, Canada": search results include nearby-store stock
     "alert_flyer": False,
     "weekly_report_enabled": True,
@@ -66,7 +67,7 @@ USER_KEYS = {
     "target_bypasses_quiet_hours", "notify_urls", "alert_target", "alert_drop", "alert_drop_pct",
     "alert_all_time_low", "alert_back_in_stock", "alert_source_failing", "alert_domain_blocked",
     "digest_enabled", "digest_time", "digest_time_blackfriday", "my_best_buy_member", "alert_deal_feed",
-    "alert_flyer", "weekly_report_enabled", "order_email_from",
+    "alert_flyer", "weekly_report_enabled", "order_email_from", "bf_plan",
 }
 
 

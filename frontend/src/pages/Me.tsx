@@ -38,6 +38,7 @@ export default function Me({ onSignOut, passwordMode }: { onSignOut: () => void;
         <Tile to="/purchases" icon="🧾" title="Bought"
           line={total ? (total.claimable_cents ? `${money(total.claimable_cents)} to claim back` : (total.purchases ? `${total.purchases} purchase${total.purchases === 1 ? "" : "s"}, prices still watched` : "Nothing bought yet")) : undefined} />
         <Tile to="/savings" icon="💰" title="Savings" line={total ? `${money(saved)} saved so far` : undefined} />
+        <Tile to="/plan" icon="🛍️" title="Black Friday plan" line="What to buy, when, and your budget" />
         <Tile to="/basket" icon="🛒" title="Plan a basket" line="Cheapest split across stores" />
         <Tile to="/settings" icon="⚙️" title="Settings" line="Alerts, province, how eager to buy" />
         {user?.role === "admin" && <Tile to="/system" icon="🛠️" title="Household admin" line="Updates, stores, perks, Claude" />}

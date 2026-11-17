@@ -431,6 +431,14 @@ def _within_budget(db: Session, provider) -> bool:
     return month_usage(db, provider.name) < pace
 
 
+def _under_limit(db: Session, provider) -> bool:
+    """The hard monthly search limit, without the even daily pace (used on live sale days)."""
+    if provider.name == "claude":
+        return True
+    limit = int(settings_store.get(db, "serp_monthly_limit") or 0)
+    return not limit or month_usage(db, provider.name) < limit
+
+
 async def barcode_lookup(db: Session, code: str) -> dict:
     """Search Google Shopping for a scanned UPC/EAN and return likely product names (one cached search)."""
     from .matching import normalize_gtin
@@ -500,7 +508,7 @@ def start_background(item_id: int) -> None:
             asyncio.run_coroutine_threadsafe(discover_in_background(item_id), runtime.main_loop)
 
 
-async def refresh_stale(db: Session, per_run: int = 5, days: float = 1) -> int:
+async def refresh_stale(db: Session, per_run: int = 5, days: float = 1, live: bool = False) -> int:
     """Re-search active items about daily, a few per run, so prices across stores stay current.
 
     Paced against the monthly search limit, so the searches last the whole month.
@@ -508,7 +516,8 @@ async def refresh_stale(db: Session, per_run: int = 5, days: float = 1) -> int:
     provider = get_provider(None)
     if provider is None or not settings_store.get(db, "discover_on_add"):
         return 0
-    if not _within_budget(db, provider):
+    ok = _under_limit if live else _within_budget  # live sale days: the monthly limit, not the even daily pace
+    if not ok(db, provider):
         return 0
     cfg = settings_store.get_all(db)
     from . import events
@@ -533,7 +542,7 @@ async def refresh_stale(db: Session, per_run: int = 5, days: float = 1) -> int:
     items = sorted(due, key=urgency)[:per_run]
     done = 0
     for item in items:
-        if not _within_budget(db, provider):
+        if not ok(db, provider):
             break
         try:
             await discover(db, item, force=True)

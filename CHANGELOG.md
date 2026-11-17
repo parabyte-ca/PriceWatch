@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0] - 2026-11-17
+### Added
+- Black Friday plan (Me, Black Friday plan; a banner on Home from November to Boxing Day): pick the items you mean to buy and set a budget. Each item says Buy now, Wait for an event (with the likely price) or Any time, with the cheapest store and a link. Totals show today's cost with tax, the cost if you wait, and what is left of the budget
+- Morning checklist: on Black Friday, Cyber Monday and Boxing Day after 7:00, your plan arrives as a notification with the best store for each item
+- Live deal watch on those three days: your items are re-checked about hourly and deal categories every 6 hours, and an hourly note lists what dropped in the last hour. The monthly search limit still applies; only the even daily pace is relaxed
+- A Claude skill file for working on PriceWatch (`docs/claude-skill/pricewatch/SKILL.md`)
+
 ## [1.4.0] - 2026-11-17
 ### Added
 - Receipt photo (Bought page): photograph a store receipt and Claude reads the store, date and lines and suggests which of your items each line is. You tick and correct the lines, then Save: each becomes a purchase with price protection. Nothing is recorded before Save

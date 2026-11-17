@@ -109,3 +109,23 @@ def dismiss_deal(deal_id: int, db: Session = Depends(get_db), me: User = Depends
         raise HTTPException(404, "Deal not found")
     d.dismissed = True
     db.commit()
+
+
+class PlanIn(BaseModel):
+    budget_cents: int | None = Field(default=None, ge=0)
+    item_ids: list[int] = Field(default_factory=list, max_length=200)
+
+
+@router.get("/plan")
+def get_plan(db: Session = Depends(get_db), me: User = Depends(current_user)):
+    from ..services import plan
+
+    return plan.build(db, me)
+
+
+@router.put("/plan")
+def put_plan(body: PlanIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
+    from ..services import plan
+
+    plan.save(db, me, body.budget_cents, body.item_ids)
+    return plan.build(db, me)
