@@ -18,6 +18,7 @@ import SystemPage from "./pages/System";
 import Home from "./pages/Home";
 import Me from "./pages/Me";
 import PlanPage from "./pages/Plan";
+import CategoryDeals from "./pages/CategoryDeals";
 import Shared from "./pages/Shared";
 
 interface MeInfo {
@@ -37,7 +38,7 @@ const ICONS: Record<string, JSX.Element> = {
 };
 
 const TABS: { to: string; label: string; icon: string; match: (p: string) => boolean }[] = [
-  { to: "/", label: "Home", icon: "home", match: (p) => p === "/" || p === "/board" || p.startsWith("/items/") },
+  { to: "/", label: "Home", icon: "home", match: (p) => p === "/" || p === "/board" || p.startsWith("/items/") || p.startsWith("/deals/") },
   { to: "/add", label: "Add", icon: "add", match: (p) => p === "/add" || p === "/share" },
   { to: "/lists", label: "Lists", icon: "lists", match: (p) => p === "/lists" },
   { to: "/me", label: "Me", icon: "me", match: (p) => ME_PATHS.includes(p) },
@@ -139,6 +140,7 @@ export default function App() {
         <Route path="/board" element={<Navigate to="/" replace />} />
         <Route path="/basket" element={<Basket />} />
         <Route path="/plan" element={<PlanPage />} />
+        <Route path="/deals/:id" element={<CategoryDeals />} />
         <Route path="/guide" element={<Me passwordMode={me.mode === "password"} onSignOut={() => api("/api/auth/logout", { method: "POST" }).then(refresh)} />} />
         <Route path="/lists" element={<Lists />} />
         <Route path="/purchases" element={<Purchases />} />

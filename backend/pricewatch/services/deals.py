@@ -421,27 +421,50 @@ def forecast(db: Session, cat: DealCategory, min_deals: int = 8) -> dict | None:
     return {"best_window": best, "averages": avg, "deals": seen, "text": text + f", from {seen} deals."}
 
 
+def _deal_out(d: CategoryDeal) -> dict:
+    return {"id": d.id, "title": d.title, "url": d.url, "store": d.store, "price_cents": d.price_cents,
+            "was_cents": d.was_cents, "discount_pct": d.discount_pct, "source": d.source, "seen_at": d.seen_at,
+            "image": d.image_url, "score": d.score}
+
+
+SORTS = ("score", "discount", "price", "newest")
+
+
+def shown_deals(db: Session, cat: DealCategory, sort: str = "score") -> list[CategoryDeal]:
+    """Every deal shown for a category (last SHOW_DAYS, not hidden), freshly scored and sorted."""
+    deals = db.scalars(select(CategoryDeal).where(CategoryDeal.category_id == cat.id,
+                                                  CategoryDeal.dismissed.is_(False),
+                                                  CategoryDeal.seen_at >= utcnow() - timedelta(days=SHOW_DAYS))).all()
+    for d in deals:
+        d.score = score_deal(db, d)  # freshness changes: rescore on read
+    newest = lambda d: -d.seen_at.timestamp()  # noqa: E731
+    keys = {
+        "score": lambda d: (-(d.score or 0), newest(d)),
+        "discount": lambda d: (-(d.discount_pct or 0), newest(d)),
+        "price": lambda d: (d.price_cents is None, d.price_cents or 0, newest(d)),
+        "newest": newest,
+    }
+    return sorted(deals, key=keys.get(sort, keys["score"]))
+
+
+def category_page(db: Session, cat: DealCategory, sort: str = "score", offset: int = 0, limit: int = 30) -> dict:
+    """The "More" page: all of a category's deals, a page at a time."""
+    deals = shown_deals(db, cat, sort)
+    return {"id": cat.id, "name": cat.name, "min_discount_pct": cat.min_discount_pct, "total": len(deals),
+            "last_search_at": cat.last_search_at, "forecast": forecast(db, cat), "sort": sort,
+            "deals": [_deal_out(d) for d in deals[offset:offset + limit]]}
+
+
 def category_deals(db: Session, user: User, per_category: int = 6) -> list[dict]:
     cats = db.scalars(select(DealCategory).where(DealCategory.user_id == user.id).order_by(DealCategory.name)).all()
     out = []
     for c in cats:
-        deals = db.scalars(select(CategoryDeal).where(CategoryDeal.category_id == c.id,
-                                                      CategoryDeal.dismissed.is_(False),
-                                                      CategoryDeal.seen_at >= utcnow() - timedelta(days=SHOW_DAYS))
-                           .order_by(CategoryDeal.seen_at.desc()).limit(40)).all()
-        for d in deals:
-            d.score = score_deal(db, d)  # freshness changes: rescore on read
-        deals = sorted(deals, key=lambda d: (-(d.score or 0), -d.seen_at.timestamp()))[:per_category]
+        deals = shown_deals(db, c)
         out.append({"id": c.id, "name": c.name, "min_discount_pct": c.min_discount_pct, "forecast": forecast(db, c),
                     "max_price_cents": c.max_price_cents, "active": c.active,
-                    "last_search_at": c.last_search_at,
-                    "deals": [{"id": d.id, "title": d.title, "url": d.url, "store": d.store,
-                               "price_cents": d.price_cents, "was_cents": d.was_cents,
-                               "discount_pct": d.discount_pct, "source": d.source, "seen_at": d.seen_at,
-                               "image": d.image_url, "score": d.score}
-                              for d in deals]})
+                    "last_search_at": c.last_search_at, "total": len(deals),
+                    "deals": [_deal_out(d) for d in deals[:per_category]]})
     return out
-
 
 
 def live_digest(db: Session, now_utc=None) -> int:

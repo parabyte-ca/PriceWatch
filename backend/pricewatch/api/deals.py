@@ -85,6 +85,18 @@ async def _first_search(cat_id: int) -> None:
         db.close()
 
 
+@router.get("/deal-categories/{cat_id}/deals")
+def category_page(cat_id: int, sort: str = "score", offset: int = 0, limit: int = 30,
+                  db: Session = Depends(get_db), me: User = Depends(current_user)):
+    """All of a category's deals for the "More" page, sorted by score, discount, price or newest."""
+    cat = db.get(DealCategory, cat_id)
+    if cat is None or cat.user_id != me.id:
+        raise HTTPException(404, "Category not found")
+    if sort not in deals.SORTS:
+        raise HTTPException(422, f"sort must be one of {', '.join(deals.SORTS)}")
+    return deals.category_page(db, cat, sort, max(0, offset), min(max(1, limit), 100))
+
+
 @router.patch("/deal-categories/{cat_id}")
 def edit_category(cat_id: int, body: CategoryIn, db: Session = Depends(get_db), me: User = Depends(current_user)):
     cat = db.get(DealCategory, cat_id)
