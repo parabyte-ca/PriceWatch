@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from ..models import CategoryDeal, DealCategory, DealFeedEntry, DealSighting, Item, Observation, SourceLink, User
 from ..timeutil import utcnow
 from . import claude, events, settings_store, users
+from .matching import Candidate
 
 log = logging.getLogger(__name__)
 PRESETS = ["TVs", "Laptops", "Home electronics", "Kitchen accessories", "Small appliances", "Women's clothing",
@@ -263,36 +264,87 @@ def _sale_season() -> bool:
     return (d.month == 11 and d.day >= 20) or (d.month == 12 and (d.day <= 2 or d.day >= 20))
 
 
-async def search_category(db: Session, cat: DealCategory, client: httpx.AsyncClient | None = None) -> int:
-    """One Google Shopping "on sale" search for the category; keeps listings with a real was-price discount."""
+CLAUDE_HOURS = 24  # Claude's web search runs at most once a day per category (every 6 hours on live sale days)
+THIN = 3  # fewer new deals than this from Google Shopping: try the wider searches
+
+
+async def search_category(db: Session, cat: DealCategory, client: httpx.AsyncClient | None = None,
+                          google: bool = True) -> int:
+    """Find deals for a category; every category of the same name shares the results.
+
+    1. Google Shopping "on sale" for the next of the category's search words (SafeSearch off for adult categories).
+    2. Nothing new: a plain Google Shopping search, keeping listings that show a price drop.
+    3. Still thin and the category asks for it: Claude's web search, at most once a day.
+    Each person's own discount and price rules decide what they keep.
+    """
     from ..serp import get_provider
-    from .discovery import DiscoveryError, run_search
+    from .discovery import DiscoveryError, _within_budget, run_search
 
-    provider = get_provider("serpapi")
-    if provider is None or not hasattr(provider, "on_sale"):
-        return 0
-
-    class _OnSale:
-        name = provider.name
-
-        async def search(self, query, client):
-            return await provider.on_sale(query, client)
-
-    key = f"deals:{cat_key(cat.name)}"
-    try:
-        cands, _ = await run_search(db, None, _OnSale(), key[:300], True, client)  # due: always fresh
-    except DiscoveryError as exc:
-        log.info("category search skipped: %s", exc)
-        return 0
-    for c in cands:
-        record_sighting(db, c.url, c.price_cents)
+    group = same_name(db, cat)
+    words = cat.words()
+    word = words[(cat.word_index or 0) % len(words)]
+    cat.word_index = (cat.word_index or 0) + 1
+    adult = any(c.adult for c in group)
     added = 0
-    # one search serves everyone following a category of the same name, each with their own discount and price rules
-    for each in same_name(db, cat):
+    provider = get_provider("serpapi")
+    if google and provider is not None and hasattr(provider, "on_sale"):
+        class _Search:
+            name = provider.name
+
+            def __init__(self, sale: bool):
+                self.sale = sale
+
+            async def search(self, _key, client):  # run_search passes the cache key; Google gets the words
+                return await (provider.on_sale if self.sale else provider.search)(word, client, adult=adult)
+
+        for sale in (True, False):
+            if not sale and (added >= 1 or not _within_budget(db, provider)):
+                break
+            key = f"deals{'' if sale else '-any'}:{'adult:' if adult else ''}{cat_key(word)}"
+            try:
+                cands, _ = await run_search(db, None, _Search(sale), key[:300], True, client)  # due: always fresh
+            except DiscoveryError as exc:
+                log.info("category search skipped: %s", exc)
+                break
+            for c in cands:
+                record_sighting(db, c.url, c.price_cents)
+            for each in group:
+                each.last_search_at = utcnow()
+                added += _keep(db, each, cands, "google_shopping")
+    for each in group:
         each.last_search_at = utcnow()
-        added += _keep(db, each, cands)
+    if added < THIN:
+        added += await _claude_search(db, [c for c in group if c.claude_search], words)
     db.commit()
     return added
+
+
+def claude_due(cat: DealCategory) -> bool:
+    from .plan import live_day
+
+    hours = 6 if live_day() else CLAUDE_HOURS
+    return cat.last_claude_at is None or cat.last_claude_at < utcnow() - timedelta(hours=hours)
+
+
+async def _claude_search(db: Session, cats: list[DealCategory], words: list[str]) -> int:
+    """Claude's web search for categories that ask for it; one search serves them all."""
+    from . import claude_deals
+
+    cats = [c for c in cats if claude_due(c)]
+    if not cats:
+        return 0
+    try:
+        found = await claude_deals.find(cats[0].name, words, min(c.min_discount_pct or 0 for c in cats))
+    except claude_deals.Unavailable as exc:
+        log.info("claude category search skipped: %s", exc)
+        return 0
+    for c in cats:
+        c.last_claude_at = utcnow()
+    cands = [Candidate(title=f.title, url=f.url, price_cents=f.price_cents, merchant=f.store,
+                       extra={"old_price_cents": f.was_cents}) for f in found]
+    for c in cands:
+        record_sighting(db, c.url, c.price_cents)
+    return sum(_keep(db, c, cands, "claude") for c in cats)
 
 
 def cat_key(name: str) -> str:
@@ -335,7 +387,7 @@ def copy_from_others(db: Session, cat: DealCategory) -> int:
     return copied
 
 
-def _keep(db: Session, cat: DealCategory, cands: list) -> int:
+def _keep(db: Session, cat: DealCategory, cands: list, source: str = "google_shopping") -> int:
     """Add the search listings that meet this category's discount and price rules."""
     added = 0
     for c in cands:
@@ -349,7 +401,7 @@ def _keep(db: Session, cat: DealCategory, cands: list) -> int:
         if db.scalar(select(CategoryDeal.id).where(CategoryDeal.category_id == cat.id, CategoryDeal.url == url)):
             continue
         d = CategoryDeal(category_id=cat.id, title=c.title[:500], url=url[:1000], store=(c.merchant or "")[:120],
-                         price_cents=c.price_cents, was_cents=was, source="google_shopping", seen_at=utcnow(),
+                         price_cents=c.price_cents, was_cents=was, source=source, seen_at=utcnow(),
                          image_url=(c.extra or {}).get("image"))
         db.add(d)
         db.flush()
@@ -372,16 +424,17 @@ async def refresh_categories(db: Session, per_run: int = 2) -> int:
                                                        CategoryDeal.seen_at >= since).limit(1)):
             copy_from_others(db, cat)
     provider = get_provider("serpapi")
-    if provider is None:
-        return 0
     cfg = settings_store.get_all(db)
     done = 0
     for cat in db.scalars(select(DealCategory).where(DealCategory.active.is_(True))
                           .order_by(DealCategory.last_search_at.is_not(None), DealCategory.last_search_at)).all():
-        if done >= per_run or not _within_budget(db, provider):
+        if done >= per_run:
             break
-        if search_due(cat, cfg):
-            await search_category(db, cat)
+        searchable = provider is not None and _within_budget(db, provider)
+        if not searchable and not (cat.claude_search and claude_due(cat)):
+            continue  # no Google searches left this stretch; Claude-only categories can still run
+        if search_due(cat, cfg) or (not searchable and cat.claude_search and claude_due(cat)):
+            await search_category(db, cat, google=searchable)
             done += 1
     return done
 
@@ -447,11 +500,20 @@ def shown_deals(db: Session, cat: DealCategory, sort: str = "score") -> list[Cat
     return sorted(deals, key=keys.get(sort, keys["score"]))
 
 
+def claude_ready() -> bool:
+    from . import claude
+
+    return bool(claude.api_key())
+
+
 def category_page(db: Session, cat: DealCategory, sort: str = "score", offset: int = 0, limit: int = 30) -> dict:
     """The "More" page: all of a category's deals, a page at a time."""
     deals = shown_deals(db, cat, sort)
     return {"id": cat.id, "name": cat.name, "min_discount_pct": cat.min_discount_pct, "total": len(deals),
             "last_search_at": cat.last_search_at, "forecast": forecast(db, cat), "sort": sort,
+            "max_price_cents": cat.max_price_cents, "adult": cat.adult, "search_words": cat.search_words,
+            "claude_search": cat.claude_search, "last_claude_at": cat.last_claude_at,
+            "claude_ready": claude_ready(),
             "deals": [_deal_out(d) for d in deals[offset:offset + limit]]}
 
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.6.0] - 2026-11-18
+### Added
+- Category settings (⚙ next to a category in Edit, "Widen the search" on an empty category, or on its More page):
+  - Your own search words, separated by commas, searched one per search in turn
+  - Minimum discount and highest price per category
+  - Adult products: the category is searched with Google SafeSearch off, which otherwise hides adult products. Other searches stay filtered
+  - Also ask Claude to search the web: when Google Shopping finds fewer than 3 new deals, Claude's web search looks for sale listings at online stores selling to Canada, at most once a day (every 6 hours on Black Friday, Cyber Monday and Boxing Day), about 6 cents each within the monthly Claude cap. Google pages, CamelCamelCamel, Keepa and Rakuten are excluded, and a deal needs a regular price above today's
+  - Save and search now
+- When the "on sale" search finds nothing new, a plain Google Shopping search runs (within the month's search pace) and keeps listings that show a price drop
+
+### Fixed
+- Category searches sent Google the text "deals:<category>" instead of the category name, which narrowed or emptied results for every category since 1.1.0
+
 ## [1.5.4] - 2026-11-17
 ### Fixed
 - Watching a deal searched for its whole headline, prices and all ("Grand Theft Auto VI Pre-Order (Xbox Digital Code): Standard $96.50, Ultimate $122"), so stores were not found. Searches and matching now use the product part only ("Grand Theft Auto VI Xbox"): store tags, prices, "Reg"/"was" prices, percentages, edition price lists after a colon, and words like pre-order, digital code, YMMV, free shipping and clearance are left out. Items already on your lists use the cleaner search words from their next refresh

@@ -23,6 +23,9 @@ class CategoryIn(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     min_discount_pct: int = Field(default=20, ge=0, le=90)
     max_price_cents: int | None = Field(default=None, ge=0)
+    adult: bool = False
+    search_words: str | None = Field(default=None, max_length=500)
+    claude_search: bool = False
 
 
 @router.post("/deal-categories", status_code=201)
@@ -75,8 +78,9 @@ async def _first_search(cat_id: int) -> None:
     try:
         cat = db.get(DealCategory, cat_id)
         provider = get_provider("serpapi")
-        if cat is not None and provider is not None and _within_budget(db, provider):
-            await deals.search_category(db, cat)
+        google = provider is not None and _within_budget(db, provider)
+        if cat is not None and (google or cat.claude_search):
+            await deals.search_category(db, cat, google=google)
     except Exception:  # noqa: BLE001
         import logging
 
@@ -104,8 +108,23 @@ def edit_category(cat_id: int, body: CategoryIn, db: Session = Depends(get_db), 
         raise HTTPException(404, "Category not found")
     cat.name, cat.min_discount_pct, cat.max_price_cents = " ".join(body.name.split()), body.min_discount_pct, \
         body.max_price_cents
+    words = ", ".join(w.strip() for w in (body.search_words or "").split(",") if w.strip())
+    if words != (cat.search_words or ""):
+        cat.word_index = 0
+    cat.search_words, cat.adult, cat.claude_search = words or None, body.adult, body.claude_search
     db.commit()
     return {"id": cat.id}
+
+
+@router.post("/deal-categories/{cat_id}/search", status_code=202)
+def search_now(cat_id: int, background: BackgroundTasks, db: Session = Depends(get_db),
+               me: User = Depends(current_user)):
+    """Search for this category's deals now (within the month's search pace), for example after changing settings."""
+    cat = db.get(DealCategory, cat_id)
+    if cat is None or cat.user_id != me.id:
+        raise HTTPException(404, "Category not found")
+    background.add_task(_first_search, cat.id)
+    return {"queued": True}
 
 
 @router.delete("/deal-categories/{cat_id}", status_code=204)

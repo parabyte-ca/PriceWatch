@@ -39,7 +39,7 @@ def test_categories_from_forum_threads_and_on_sale_search(client, db_session, mo
     seen = {}
 
     class P(SerpApiProvider):
-        async def on_sale(self, query, client):
+        async def on_sale(self, query, client, adult=False):
             async def handler(req):
                 seen.update(dict(req.url.params))
                 return httpx.Response(200, json=rows)
@@ -50,7 +50,7 @@ def test_categories_from_forum_threads_and_on_sale_search(client, db_session, mo
 
     monkeypatch.setattr(serp, "get_provider", lambda name=None: P("k"))
     assert asyncio.run(deals.refresh_categories(db_session)) == 1
-    assert seen["tbs"] == "mr:1,sales:1" and seen["q"] == "deals:tvs"
+    assert seen["tbs"] == "mr:1,sales:1" and seen["q"] == "TVs"
     home = client.get("/api/deals/home").json()
     tv = next(c for c in home["categories"] if c["id"] == cat_id)
     assert [d["source"] for d in tv["deals"]] == ["google_shopping", "rfd"]  # 33% off first
@@ -246,7 +246,7 @@ def test_same_category_shared_between_people(client, db_session, monkeypatch):
     class P:
         name = "serpapi"
 
-        async def on_sale(self, q, client):
+        async def on_sale(self, q, client, adult=False):
             return [Candidate(title="Prusa MK4", url="https://x.ca/mk4", price_cents=60000,
                               extra={"old_price_cents": 100000})]
     monkeypatch.setattr("pricewatch.serp.get_provider", lambda name=None: P())
@@ -280,3 +280,68 @@ def test_category_more_page(client, db_session):
     assert client.get(f"/api/deal-categories/{cat.id}/deals?sort=newest").json()["deals"][0]["title"] == "TV 0"
     assert client.get(f"/api/deal-categories/{cat.id}/deals?sort=bogus").status_code == 422
     assert client.get("/api/deal-categories/99999/deals").status_code == 404
+
+
+def test_category_search_options(client, db_session, monkeypatch):
+    """Adult categories turn SafeSearch off, own words rotate, a plain search backs up an empty sale search,
+    and Claude's web search tops up a thin category once a day."""
+    from pricewatch.models import CategoryDeal, DealCategory, User
+    from pricewatch.serp.base import Candidate
+    from pricewatch.services import claude_deals
+
+    me = db_session.query(User).first()
+    cat = DealCategory(user_id=me.id, name="Sex toys", adult=True, search_words="vibrator, Lelo", claude_search=True,
+                       min_discount_pct=20)
+    db_session.add(cat)
+    db_session.commit()
+    calls = []
+
+    class P:
+        name = "serpapi"
+
+        async def on_sale(self, q, client, adult=False):
+            calls.append(("sale", q, adult))
+            return []
+
+        async def search(self, q, client, adult=False):
+            calls.append(("any", q, adult))
+            return [Candidate(title="Lelo Sona 2", url="https://shop.ca/sona", price_cents=9000, merchant="Shop",
+                              extra={"old_price_cents": 15000}),
+                    Candidate(title="No drop", url="https://shop.ca/x", price_cents=5000, merchant="Shop")]
+    monkeypatch.setattr("pricewatch.serp.get_provider", lambda name=None: P())
+
+    async def fake_find(category, words, min_pct, **kw):
+        return [claude_deals.FoundDeal("We-Vibe Chorus", "Adult Store", "https://adult.ca/chorus", 12000, 20000)]
+    monkeypatch.setattr(claude_deals, "find", fake_find)
+    asyncio.run(deals.search_category(db_session, cat))
+    assert calls == [("sale", "vibrator", True), ("any", "vibrator", True)]
+    got = {d.url: d.source for d in db_session.query(CategoryDeal).filter(CategoryDeal.category_id == cat.id)}
+    assert got == {"https://shop.ca/sona": "google_shopping", "https://adult.ca/chorus": "claude"}
+    assert cat.last_claude_at is not None
+
+    calls.clear()
+    asyncio.run(deals.search_category(db_session, cat))
+    assert calls[0] == ("sale", "Lelo", True)  # the next word in turn
+    assert deals.claude_due(cat) is False  # Claude waits a day
+
+
+def test_claude_deals_cleaning():
+    from pricewatch.services.claude_deals import _clean
+
+    rows = [{"title": "A", "store": "S", "url": "https://shop.ca/a", "price": "$40", "was_price": "$80"},
+            {"title": "dup", "store": "S", "url": "https://shop.ca/a", "price": "$40", "was_price": "$80"},
+            {"title": "no was", "store": "S", "url": "https://shop.ca/b", "price": "$40", "was_price": None},
+            {"title": "tracker", "store": "K", "url": "https://keepa.com/x", "price": "$1", "was_price": "$2"},
+            {"title": "http", "store": "S", "url": "http://shop.ca/c", "price": "$1", "was_price": "$2"}]
+    assert [d.title for d in _clean(rows)] == ["A"]
+
+
+def test_category_settings_api(client, db_session):
+    cid = client.post("/api/deal-categories", json={"name": "Sex toys"}).json()["id"]
+    r = client.patch(f"/api/deal-categories/{cid}", json={"name": "Sex toys", "min_discount_pct": 10, "adult": True,
+                                                          "search_words": " vibrator ,, Lelo ", "claude_search": True})
+    assert r.status_code == 200
+    page = client.get(f"/api/deal-categories/{cid}/deals").json()
+    assert page["adult"] and page["claude_search"] and page["search_words"] == "vibrator, Lelo"
+    assert page["min_discount_pct"] == 10
+    assert client.post(f"/api/deal-categories/{cid}/search").status_code == 202
