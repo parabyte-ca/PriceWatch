@@ -10,13 +10,13 @@
     "guide": "node scripts/user-guide.mjs src/components/Walkthrough.tsx ../docs/user-guide.md"
   },
   "dependencies": {
-    "react": "18.3.1",
+    "react": "19.3.1",
     "react-dom": "18.3.1",
     "react-router-dom": "6.30.6",
     "recharts": "2.15.4"
   },
   "devDependencies": {
-    "@types/react": "18.3.31",
+    "@types/react": "19.3.0",
     "@types/react-dom": "18.3.7",
     "@vitejs/plugin-react": "4.7.0",
     "autoprefixer": "10.6.2",
