@@ -1,5 +1,10 @@
 # Changelog
 
+## [1.6.1] - 2026-11-18
+### Changed
+- The Ask PriceWatch tray slides open and closed like Ask NetWatch (300 ms, none with reduced motion). A tap outside it or Esc closes it, the conversation and your unsent question are kept, and the question box is ready to type on open
+- Every category on Home has a settings link under its deals ("Few deals? Widen the search" when it has fewer than 6, otherwise "Search settings"), not only empty categories
+
 ## [1.6.0] - 2026-11-18
 ### Added
 - Category settings (⚙ next to a category in Edit, "Widen the search" on an empty category, or on its More page):
