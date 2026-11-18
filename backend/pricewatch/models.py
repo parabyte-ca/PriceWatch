@@ -486,6 +486,16 @@ class DealCategory(Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_search_at: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    adult: Mapped[bool] = mapped_column(Boolean, default=False)  # search with Google SafeSearch off
+    search_words: Mapped[str | None] = mapped_column(String(500))  # comma-separated; searched in turn
+    word_index: Mapped[int] = mapped_column(Integer, default=0)
+    claude_search: Mapped[bool] = mapped_column(Boolean, default=False)  # also ask Claude's web search for deals
+    last_claude_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    def words(self) -> list[str]:
+        """The search words to use in turn: the category's own, or its name."""
+        own = [w.strip() for w in (self.search_words or "").split(",") if w.strip()]
+        return own or [self.name]
 
 
 class CategoryDeal(Base):

@@ -14,7 +14,7 @@ class SerpApiProvider:
         self.api_key = api_key
         self.location = location  # a city gives "in stock nearby" and pickup notes in results
 
-    async def search(self, query: str, client: httpx.AsyncClient) -> list[Candidate]:
+    async def search(self, query: str, client: httpx.AsyncClient, adult: bool = False) -> list[Candidate]:
         params = {
             "engine": "google_shopping",
             "q": query,
@@ -24,6 +24,8 @@ class SerpApiProvider:
             "location": self.location or "Canada",
             "api_key": self.api_key,
         }
+        if adult:
+            params["safe"] = "off"  # adult products are hidden by Google's SafeSearch; only for categories marked adult
         try:
             resp = await client.get(self.endpoint, params=params, timeout=40)
         except httpx.HTTPError as exc:
@@ -41,10 +43,12 @@ class SerpApiProvider:
         rows = list(data.get("shopping_results") or []) + list(data.get("inline_shopping_results") or [])
         return [c for c in (shopping_item_to_candidate(r, self.name) for r in rows) if c]
 
-    async def on_sale(self, query: str, client: httpx.AsyncClient) -> list[Candidate]:
+    async def on_sale(self, query: str, client: httpx.AsyncClient, adult: bool = False) -> list[Candidate]:
         """Google Shopping Canada filtered to items on sale (each result carries its was-price)."""
         params = {"engine": "google_shopping", "q": query, "gl": "ca", "hl": "en", "google_domain": "google.ca",
                   "location": "Canada", "tbs": "mr:1,sales:1", "api_key": self.api_key}
+        if adult:
+            params["safe"] = "off"
         try:
             resp = await client.get(self.endpoint, params=params, timeout=40)
         except httpx.HTTPError as exc:

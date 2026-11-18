@@ -1,7 +1,7 @@
 # PriceWatch CA
 > Self-hosted wishlist price tracker that finds the lowest landed price in Canada and tells real deals from inflated "was" prices.
 
-![Version](https://img.shields.io/badge/version-1.5.4-blue)
+![Version](https://img.shields.io/badge/version-1.6.0-blue)
 
 ## Overview
 Type a product, paste a store link or scan a barcode, and PriceWatch CA shows every Canadian
@@ -29,6 +29,7 @@ not the retailer's "was" price, decides whether a sale is real.
 - Home Assistant sensors (buy-now count, claimable money, every item's price and verdict); see `docs/home-assistant.md`
 - A short walkthrough on first sign-in (again any time from Me, How PriceWatch works); the same text is in `docs/user-guide.md`
 - "Will it get cheaper?" estimate per item from its own history and the sale calendar, with reasons
+- Deal categories can be widened: your own search words, discount and price rules, adult categories (SafeSearch off for that category only) and optional Claude web search when Google Shopping finds little
 - Black Friday plan: your items, a budget, and when and where to buy each; a checklist on Black Friday, Cyber Monday and Boxing Day mornings, hourly re-checks and an hourly "what dropped" note on those days
 - Weekly report every Sunday, optionally summarised by Claude Haiku
 - Black Friday mode (Nov 26 to Dec 1) and Boxing Week mode (Dec 26 to 31): top hot items every 30 minutes, second digest, shorter alert window

@@ -88,6 +88,7 @@ export default function HomeDeals() {
                   className={`rounded-full px-3 py-1 text-sm ${c.id === cat ? "bg-red-700 text-white" : "bg-slate-200 dark:bg-slate-800"}`}>
                   {c.name}{c.total ? ` (${c.total})` : ""}
                 </button>
+                {editing && <Link to={`/deals/${c.id}?settings=1`} className="ml-1 px-1 text-slate-400 hover:text-slate-700" aria-label={`Settings for ${c.name}`}>⚙</Link>}
                 {editing && <button className="ml-1 px-1 text-slate-400 hover:text-red-600" aria-label={`Stop following ${c.name}`}
                   onClick={() => api(`/api/deal-categories/${c.id}`, { method: "DELETE" }).then(load)}>✕</button>}
               </span>
@@ -99,7 +100,8 @@ export default function HomeDeals() {
           <DealList deals={shown.deals} view={view} onChange={load} empty={
             <p className="py-2 text-sm text-slate-500">
               No deals for {shown.name} yet. New RedFlagDeals threads are sorted in as they appear, and Google Shopping sales are
-              checked {shown.last_search_at ? `(last ${ago(shown.last_search_at)})` : "soon"}: daily in Black Friday week and Boxing Week.
+              checked {shown.last_search_at ? `(last ${ago(shown.last_search_at)})` : "soon"}: daily in Black Friday week and Boxing Week.{" "}
+              <Link to={`/deals/${shown.id}?settings=1`} className="text-red-700 underline dark:text-red-400">Widen the search</Link>
             </p>} />
         )}
         {shown && shown.total > shown.deals.length && (

@@ -7,7 +7,7 @@ export interface CatDeal { id: number; title: string; url: string; store: string
 interface DealHistory { low_cents: number | null; high_cents: number | null; typical_cents: number | null; count: number; verdict: string | null }
 export type DealView = "list" | "tiles";
 
-export const SOURCE: Record<string, string> = { rfd: "RedFlagDeals", google_shopping: "Google Shopping" };
+export const SOURCE: Record<string, string> = { rfd: "RedFlagDeals", google_shopping: "Google Shopping", claude: "Claude web search" };
 
 export function useDealView(): [DealView, (v: DealView) => void] {
   const [view, setView] = useState<DealView>(() => {
