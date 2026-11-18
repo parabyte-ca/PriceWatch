@@ -24,6 +24,23 @@ export default function AskPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const log = useRef<HTMLDivElement>(null);
+  const tray = useRef<HTMLElement>(null);
+  const input = useRef<HTMLInputElement>(null);
+  const opener = useRef<HTMLButtonElement>(null);
+
+  // like Ask NetWatch: the tray stays mounted and slides; outside tap or Esc closes it, the chat and draft are kept
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => input.current?.focus(), 50);
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (tray.current && !tray.current.contains(target) && !opener.current?.contains(target)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { clearTimeout(t); document.removeEventListener("pointerdown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [open]);
 
   useEffect(() => { api<{ available: boolean }>("/api/ask").then((s) => setAvailable(s.available), () => setAvailable(false)); }, [open]);
   useEffect(() => { const el = log.current; if (el) el.scrollTop = el.scrollHeight; }, [msgs, busy, error]);
@@ -47,15 +64,13 @@ export default function AskPanel() {
   if (!available && !open) return null;
   return (
     <>
-      {!open && (
-        <button onClick={() => setOpen(true)}
-          className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 rounded-full bg-red-700 px-4 py-2.5 text-sm font-medium text-white shadow-lg hover:bg-red-800 md:bottom-4">
-          Ask PriceWatch
-        </button>
-      )}
-      {open && (
-        <aside aria-label="Ask PriceWatch"
-          className="fixed inset-x-0 bottom-0 top-[max(4rem,env(safe-area-inset-top))] z-50 flex flex-col rounded-t-xl pb-[env(safe-area-inset-bottom)] sm:top-auto bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:h-[36rem] sm:w-[26rem] sm:rounded-xl">
+      <button ref={opener} onClick={() => setOpen(true)} aria-hidden={open} tabIndex={open ? -1 : 0}
+        className={`fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 rounded-full bg-red-700 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition-opacity duration-300 hover:bg-red-800 motion-reduce:transition-none md:bottom-4 ${open ? "pointer-events-none opacity-0" : "opacity-100"}`}>
+        Ask PriceWatch
+      </button>
+      {(
+        <aside ref={tray} aria-label="Ask PriceWatch" aria-hidden={!open} {...(!open ? { inert: "" } : {})}
+          className={`fixed inset-x-0 bottom-0 top-[max(4rem,env(safe-area-inset-top))] z-50 flex flex-col rounded-t-xl pb-[env(safe-area-inset-bottom)] sm:top-auto bg-white shadow-2xl ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700 sm:inset-x-auto sm:bottom-4 sm:right-4 sm:h-[36rem] sm:w-[26rem] sm:rounded-xl transition-[transform,visibility] duration-300 ease-out motion-reduce:transition-none ${open ? "visible translate-y-0" : "invisible translate-y-[calc(100%+2rem)]"}`}>
           <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2 dark:border-slate-800">
             <h2 className="text-sm font-semibold">Ask PriceWatch</h2>
             <div className="flex gap-2">
@@ -84,7 +99,7 @@ export default function AskPanel() {
             {error && <p role="alert" className="text-red-600">{error}</p>}
           </div>
           <form onSubmit={submit} className="flex gap-2 border-t border-slate-200 p-3 dark:border-slate-800">
-            <input aria-label="Question" className="input text-base sm:text-sm" enterKeyHint="send" placeholder={available ? "Ask about your list…" : "The household admin needs to add a Claude key"}
+            <input ref={input} aria-label="Question" className="input text-base sm:text-sm" enterKeyHint="send" placeholder={available ? "Ask about your list…" : "The household admin needs to add a Claude key"}
               value={text} maxLength={2000} disabled={!available} onChange={(e) => setText(e.target.value)} />
             <button type="submit" disabled={busy || !text.trim() || !available} className="btn-primary">Ask</button>
           </form>

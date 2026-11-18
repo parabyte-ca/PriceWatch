@@ -104,10 +104,17 @@ export default function HomeDeals() {
               <Link to={`/deals/${shown.id}?settings=1`} className="text-red-700 underline dark:text-red-400">Widen the search</Link>
             </p>} />
         )}
-        {shown && shown.total > shown.deals.length && (
-          <Link to={`/deals/${shown.id}`} className="block text-center text-sm text-red-700 hover:underline dark:text-red-400">
-            More {shown.name} deals ({shown.total}) →
-          </Link>
+        {shown && shown.deals.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-sm">
+            <Link to={`/deals/${shown.id}?settings=1`} className="text-slate-500 hover:underline">
+              ⚙ {shown.total < 6 ? "Few deals? Widen the search" : "Search settings"}
+            </Link>
+            {shown.total > shown.deals.length && (
+              <Link to={`/deals/${shown.id}`} className="text-red-700 hover:underline dark:text-red-400">
+                More {shown.name} deals ({shown.total}) →
+              </Link>
+            )}
+          </div>
         )}
         {(editing || d.categories.length === 0) && (
           <form onSubmit={submit} className="card space-y-2 text-sm">
